@@ -518,8 +518,12 @@ interface Clip {
 | 5.6 | Scene markers: FFmpeg scene detection → navigable marker list | `feat: add scene change detection and markers` |
 | 5.7 | Voiceover recording: MediaRecorder → audio track placement | `feat: add in-browser voiceover recording` |
 | 5.8 | AI script assistant: draft intro/transition/outro from context | `feat: implement AI script writing assistant` |
+| 5.9 | `apple-motion` Spring Physics Engine: critically damped springs (`mass: 1, stiffness: 320, damping: 28`), tactile button click depression (`scale: 0.98`), rubber-band boundary resistance on clip dragging | `feat: implement apple-motion spring physics and tactile interactions` |
+| 5.10 | FLIP Layout & Smooth Clip Transitions: animated vacancy collapse during ripple cuts, clip lift-and-drop shadows, smooth playhead motion interpolation | `feat: implement FLIP layout animations for ripple cuts and clip reordering` |
+| 5.11 | Kinetic Subtitle Animation System: word-by-word highlight pop (`scale: 1.10`), karaoke fill transitions, typography preset cross-fades | `feat: implement kinetic typography and animated subtitle engine` |
+| 5.12 | Micro-Interactions & Staggered AI Cards: staggered 40ms AI proposal entry transitions, approval pulse feedback, dual-theme cross-fade without layout jitter | `feat: add staggered AI card transitions and tactile micro-animations` |
 
-**Deliverable:** Production-ready editor with recipes, analytics, and audio polish.
+**Deliverable:** Production-ready editor with recipes, analytics, audio polish, and Apple-grade fluid animations.
 
 ---
 
