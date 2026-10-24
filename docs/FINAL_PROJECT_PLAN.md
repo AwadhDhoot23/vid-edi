@@ -545,6 +545,66 @@ interface Clip {
 
 ---
 
+### Current Implementation Status & Live Architecture Log (October 2026)
+
+> [!NOTE]
+> This section tracks current sprint progress, recent user feedback, and architecture decisions made across recent sessions.
+
+#### 1. What Has Been Completed & Verified:
+* **Phase 0 (Foundation & Scaffolding):**
+  * `[x]` Monorepo scaffolding with Turborepo & pnpm workspaces (`apps/studio`, `packages/*`, `workers/*`).
+  * `[x]` Tailwind CSS 4 dual-theme system (warm light theme default + dark mode).
+  * `[x]` Interactive Cover Page (`CoverPage.tsx`) with animated hero showcase and unified single-port navigation (`http://localhost:3000/#home` & `#studio`).
+* **Phase 1 (Media Foundation):**
+  * `[x]` Video drag-and-drop import and sample video loader.
+  * `[x]` Media inspector panel (duration, resolution, codec, audio specs).
+  * `[x]` Video preview player with frame-accurate seeking and playhead synchronization.
+* **Phase 2 (Timeline Engine):**
+  * `[x]` Multi-track editable canvas (Video, Dialogue Audio, Captions, Overlay).
+  * `[x]` Visual trim handles (drag inward from left or right edge to non-destructively trim clip boundaries).
+  * `[x]` Split tool (`S` key / button) and virtual timeline gap skipping.
+  * `[x]` Keyboard navigation: Space (play/pause), ArrowRight (+5s seek), ArrowLeft (-5s seek), Delete (delete clip), Ctrl+Z (undo), Ctrl+Y (redo).
+* **Phase 3 (Transcription, Captions & Audio):**
+  * `[x]` Groq Whisper Cloud API integration (`whisper-large-v3`) with zero UI popups (stored via `.env.local`).
+  * `[x]` Word-level sync transcript panel with click-to-seek and inline text editing.
+  * `[x]` SRT and VTT subtitle file generation and download.
+  * `[x]` Volume slider, mute toggle, and audio mixing preview.
+* **Phase 4 (AI Edit Planner & Export):**
+  * `[x]` Transparent, confidence-scored operation cards with human-readable rationale.
+  * `[x]` Dynamic transcript-driven silence gap detection (`gap >= 1.4s` between words with 150ms natural speech padding).
+  * `[x]` Timeline execution: `removeSegmentFromTracks` non-destructively slices clips, extracts dead air, and ripples downstream clips.
+  * `[x]` Aspect ratio switching (16:9 Landscape, 9:16 Shorts/Reels, 1:1 Square).
+  * `[x]` Deterministic Native FFmpeg Filter Graph Compiler (`compileTimelineToFFmpeg` in `@vid-edi/media-processing`).
+  * `[x]` Reproducible JSON edit plan export (`generateEditPlanJson`).
+  * `[x]` Export modal rendered into `document.body` via React Portal (`createPortal`) to prevent CSS `backdrop-filter` stacking context entrapment.
+* **Phase 5 (Polish & Advanced Features):**
+  * `[x]` Explainable Edit History Panel (Task 5.1): logs every operation with timestamps, delta seconds cut, and AI reasoning.
+  * `[x]` Smart Edit Recipes (Task 5.2): 1-click presets ("Podcast Polish", "Viral Short Reframe 9:16", "Tight Teaser Hook").
+  * `[x]` Project Analytics & Impact Dashboard (Task 5.3): duration compression comparison bar, cuts count, time saved % and retention score.
+  * `[x]` Apple Motion physics (Task 5.9): zero-latency tactile button press (`active:scale-[0.965]`) and spring animations (`animate-spring-in`).
+  * `[x]` Kinetic Subtitle Pop (Task 5.11): dynamically highlights spoken words with spring pop and emerald glow in the preview player.
+
+#### 2. Decisions & Refinements From Recent Discussions:
+1. **Zero API Key UI Prompts:** API keys (Groq Whisper, Groq Llama) are stored in `.env.local` and never prompted to the user in modal dialogs.
+2. **5-Second Keyboard Seeking:** `ArrowRight` and `ArrowLeft` seek by 5 seconds (clamped to timeline bounds) rather than 1 frame, providing immediate, visible feedback.
+3. **Export Architecture (Native FFmpeg vs. Browser):**
+   * Web browsers have strict RAM caps that crash on large 4K files. The plan relies on **Native FFmpeg** for lossless 10-bit rendering.
+   * Dual-mode export:
+     * **Mode A (Local / CLI):** The studio compiles the deterministic FFmpeg CLI command that runs directly on the user's computer with zero quality loss.
+     * **Mode B (Server Worker):** The backend render worker (`workers/render`) runs native FFmpeg on the server via BullMQ + Redis, streaming real-time progress via SSE.
+   * Removed experimental in-browser canvas recorder to stay 100% faithful to the plan and prevent degraded canvas quality.
+4. **Manual Ripple Delete Refinement:** When a user manually deletes a split clip, it will ripple downstream clips leftward and shorten the timeline duration by default (rather than leaving an empty gap).
+5. **Direct Groq Llama 3 LLM Integration:** Hook Groq Llama 3 (`llama-3.3-70b-versatile`) directly to the AI Copilot text chat so freeform editing prompts query the LLM for structured edit plans.
+
+#### 3. Immediate Remaining Tasks Checklist:
+* [ ] **Task R1:** Update manual `removeClip` to perform Ripple Delete (shorten timeline duration automatically).
+* [ ] **Task R2:** Clean Export Modal to focus on Native FFmpeg Command, Edit Plan JSON, and Subtitle downloads.
+* [ ] **Task R3:** Connect Groq Llama 3 adapter to the AI Assistant prompt input for freeform conversational AI editing.
+* [ ] **Task R4:** Comprehensive multi-video testing with real-world 1080p and 4K footage.
+* [ ] **Task R5:** Complete documentation, architecture guide, and project `README.md`.
+
+---
+
 ## 7. AI Edit Planner — The Core Differentiator
 
 ### Supported Commands (V1)
