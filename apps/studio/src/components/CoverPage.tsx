@@ -287,60 +287,6 @@ export function CoverPage({ onLaunchStudio }: CoverPageProps) {
 
         {/* HERO STAGE — Interactive Studio Preview Canvas */}
         <section id="hero-stage" className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
-          {/* Direct Manipulation Prompt Selector (Apple-Motion / Direct Ergonomics) */}
-          <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
-            <span className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider mr-2 hidden sm:inline">
-              Interactive Demos:
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('shorts');
-                setPlayheadPos(36);
-              }}
-              className={`text-xs px-3.5 py-1.5 rounded-full font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeTab === 'shorts'
-                  ? 'bg-[var(--accent-primary)] text-white shadow-xs scale-105'
-                  : 'bg-[var(--bg-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--text-secondary)]'
-              }`}
-            >
-              <span>📱</span>
-              <span>"Extract 9:16 Shorts with Viral Captions"</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('pauses');
-                setPlayheadPos(28);
-              }}
-              className={`text-xs px-3.5 py-1.5 rounded-full font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeTab === 'pauses'
-                  ? 'bg-[var(--accent-coral)] text-white shadow-xs scale-105'
-                  : 'bg-[var(--bg-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--text-secondary)]'
-              }`}
-            >
-              <span>⚡</span>
-              <span>"Remove Dead-Air Silences & Hesitations"</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('captions');
-                setPlayheadPos(45);
-              }}
-              className={`text-xs px-3.5 py-1.5 rounded-full font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeTab === 'captions'
-                  ? 'bg-amber-500 text-white shadow-xs scale-105'
-                  : 'bg-[var(--bg-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--text-secondary)]'
-              }`}
-            >
-              <span>💬</span>
-              <span>"Style Dynamic Word-Synced Subtitles"</span>
-            </button>
-          </div>
-
           <div className="relative rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden backdrop-blur-xl">
             {/* Window Chrome Header Bar */}
             <div className="h-12 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] px-4 flex items-center justify-between">
@@ -402,39 +348,44 @@ export function CoverPage({ onLaunchStudio }: CoverPageProps) {
             </div>
 
             {/* Showcase Stage Interior */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[540px]">
+            <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[560px]">
               {/* Left Column: Video Preview & Subtitles */}
-              <div className="lg:col-span-8 bg-neutral-950 p-6 flex flex-col justify-between relative overflow-hidden">
-                {/* Floating Inspection Pill */}
-                <div className="absolute top-4 left-4 z-20 flex items-center gap-2 flex-wrap">
-                  <span className="bg-white/10 backdrop-blur-md text-white border border-white/20 text-xs px-2.5 py-1 rounded-full font-mono">
-                    {formattedTimecode} / 01:14.5 • 1080p
+              <div className="lg:col-span-8 bg-neutral-950 flex flex-col justify-between relative overflow-hidden">
+                {/* Dedicated Video Meta Toolbar (Proper clearance from video boundary) */}
+                <div className="h-11 px-5 flex items-center justify-between border-b border-white/10 bg-neutral-900/60 backdrop-blur-md shrink-0 z-20">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="bg-white/10 text-white border border-white/15 text-xs px-2.5 py-1 rounded-full font-mono">
+                      {formattedTimecode} / 01:14.5 • 1080p
+                    </span>
+                    {activeTab === 'shorts' && (
+                      <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 font-medium">
+                        <Sparkles className="w-3 h-3 text-emerald-400" />
+                        Vertical 9:16 Crop • 96% Viral Hook Score
+                      </span>
+                    )}
+                    {activeTab === 'pauses' && (
+                      <span className="bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs px-2.5 py-1 rounded-full flex items-center gap-1 font-medium">
+                        <Scissors className="w-3 h-3" />
+                        Detected 3 dead-air pauses (total -6.8s)
+                      </span>
+                    )}
+                    {activeTab === 'captions' && (
+                      <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs px-2.5 py-1 rounded-full flex items-center gap-1 font-medium">
+                        <Type className="w-3 h-3" />
+                        Preset: {captionPreset.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] font-mono text-neutral-400 hidden sm:inline">
+                    Studio Monitor
                   </span>
-                  {activeTab === 'shorts' && (
-                    <span className="bg-emerald-500/20 backdrop-blur-md text-emerald-300 border border-emerald-500/40 text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5">
-                      <Sparkles className="w-3 h-3 text-emerald-400" />
-                      Vertical 9:16 Crop • 96% Viral Hook Score
-                    </span>
-                  )}
-                  {activeTab === 'pauses' && (
-                    <span className="bg-rose-500/20 backdrop-blur-md text-rose-300 border border-rose-500/40 text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
-                      <Scissors className="w-3 h-3" />
-                      Detected 3 dead-air pauses (total -6.8s)
-                    </span>
-                  )}
-                  {activeTab === 'captions' && (
-                    <span className="bg-amber-500/20 backdrop-blur-md text-amber-300 border border-amber-500/40 text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
-                      <Type className="w-3 h-3" />
-                      Preset: {captionPreset.toUpperCase()}
-                    </span>
-                  )}
                 </div>
 
-                {/* Video Preview Center Stage */}
-                <div className="my-auto py-4 flex flex-col items-center justify-center text-center">
+                {/* Video Preview Center Stage with generous breathing room */}
+                <div className="flex-1 py-7 px-4 flex flex-col items-center justify-center text-center">
                   {activeTab === 'shorts' ? (
                     /* World-Class iPhone 16 Pro Smartphone 9:16 Mockup */
-                    <div className="relative w-[280px] h-[415px] rounded-[38px] bg-gradient-to-b from-neutral-800 via-neutral-900 to-neutral-800 border-[3.5px] border-neutral-600/90 shadow-2xl p-2.5 flex flex-col justify-between overflow-hidden ring-1 ring-white/10">
+                    <div className="relative w-[268px] h-[395px] rounded-[36px] bg-gradient-to-b from-neutral-800 via-neutral-900 to-neutral-800 border-[3.5px] border-neutral-600/90 shadow-2xl p-2.5 flex flex-col justify-between overflow-hidden ring-1 ring-white/10">
                       {/* Top iOS Status Bar */}
                       <div className="relative z-30 px-3 pt-0.5 flex items-center justify-between text-[10px] font-mono text-white/90">
                         <span className="font-semibold">9:41</span>
@@ -718,7 +669,7 @@ export function CoverPage({ onLaunchStudio }: CoverPageProps) {
                 </div>
 
                 {/* Interactive Multi-Track Timeline Strip (Directly Scrubbable) */}
-                <div className="mt-4 pt-3 border-t border-white/10">
+                <div className="p-4 pt-3 border-t border-white/10 shrink-0">
                   <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400 mb-1.5 px-1">
                     <span>TIMELINE (CLICK TO SCRUB)</span>
                     <span className="text-amber-400 font-semibold">{formattedTimecode}</span>
