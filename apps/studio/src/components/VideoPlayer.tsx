@@ -1,7 +1,21 @@
 import { useRef, useEffect, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Maximize, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  Maximize,
+  RotateCcw,
+  Volume2,
+  VolumeX,
+  Scissors,
+} from 'lucide-react';
 import { Button, formatSecondsToTimecode } from '@vid-edi/ui';
-import { useTimelineStore } from '@vid-edi/editor-engine';
+import {
+  useTimelineStore,
+  getActiveClipAtTime,
+  getNextClipStartTime,
+} from '@vid-edi/editor-engine';
 
 export function VideoPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -11,16 +25,9 @@ export function VideoPlayer() {
   const { activeSource, currentTime, setCurrentTime, isPlaying, setIsPlaying, timeline } =
     useTimelineStore();
 
-  // Sync state with HTML video element
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+  const activeClipInfo = getActiveClipAtTime(timeline.tracks, currentTime);
 
-    if (Math.abs(video.currentTime - currentTime) > 0.25) {
-      video.currentTime = currentTime;
-    }
-  }, [currentTime]);
-
+  // Sync volume with HTML video element
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -29,30 +36,92 @@ export function VideoPlayer() {
     video.muted = isMuted;
   }, [volume, isMuted]);
 
+  // Direct scrub / playhead sync when paused
   useEffect(() => {
+    if (isPlaying) return;
     const video = videoRef.current;
     if (!video) return;
 
-    if (isPlaying) {
-      void video.play().catch(() => setIsPlaying(false));
+    if (activeClipInfo) {
+      if (Math.abs(video.currentTime - activeClipInfo.sourceTime) > 0.03) {
+        video.currentTime = activeClipInfo.sourceTime;
+      }
     } else {
-      video.pause();
+      if (!video.paused) {
+        video.pause();
+      }
     }
-  }, [isPlaying, setIsPlaying]);
+  }, [currentTime, activeClipInfo, isPlaying]);
 
-  const handleTimeUpdate = () => {
-    if (videoRef.current && isPlaying) {
-      setCurrentTime(videoRef.current.currentTime);
+  // Virtual Timeline Playback loop: skips deleted clips and advances smoothly
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isPlaying) {
+      if (video && !video.paused) video.pause();
+      return;
     }
-  };
+
+    let animationFrameId: number;
+    let lastTimestamp = performance.now();
+
+    const tick = (now: number) => {
+      const deltaSec = (now - lastTimestamp) / 1000;
+      lastTimestamp = now;
+
+      const rate = video.playbackRate || 1;
+      const currentTlTime = useTimelineStore.getState().currentTime;
+      const newTlTime = currentTlTime + deltaSec * rate;
+
+      if (newTlTime >= timeline.duration) {
+        setCurrentTime(timeline.duration);
+        setIsPlaying(false);
+        return;
+      }
+
+      const activeInfo = getActiveClipAtTime(timeline.tracks, newTlTime);
+      if (activeInfo) {
+        // Within an active clip
+        if (video.paused) {
+          video.currentTime = activeInfo.sourceTime;
+          void video.play().catch(() => {});
+        } else if (Math.abs(video.currentTime - activeInfo.sourceTime) > 0.12) {
+          video.currentTime = activeInfo.sourceTime;
+        }
+        setCurrentTime(newTlTime);
+      } else {
+        // In an empty gap created by a deleted or trimmed clip!
+        // Ripple skip: jump directly to the start of the next clip
+        const nextStart = getNextClipStartTime(timeline.tracks, newTlTime);
+        if (nextStart !== null && nextStart < timeline.duration) {
+          setCurrentTime(nextStart);
+          const nextClipInfo = getActiveClipAtTime(timeline.tracks, nextStart);
+          if (nextClipInfo) {
+            video.currentTime = nextClipInfo.sourceTime;
+          }
+        } else {
+          // Reached the end of all clips on the timeline
+          setCurrentTime(timeline.duration);
+          setIsPlaying(false);
+          return;
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(tick);
+    };
+
+    animationFrameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [isPlaying, timeline.tracks, timeline.duration, setCurrentTime, setIsPlaying]);
 
   const stepFrame = (frames: number) => {
     const fps = timeline.fps || 30;
     const delta = frames / fps;
     const nextTime = Math.max(0, Math.min(currentTime + delta, timeline.duration));
     setCurrentTime(nextTime);
-    if (videoRef.current) {
-      videoRef.current.currentTime = nextTime;
+
+    const targetClip = getActiveClipAtTime(timeline.tracks, nextTime);
+    if (targetClip && videoRef.current) {
+      videoRef.current.currentTime = targetClip.sourceTime;
     }
   };
 
@@ -77,16 +146,30 @@ export function VideoPlayer() {
             <video
               ref={videoRef}
               src={activeSource.path}
-              className="max-h-full max-w-full object-contain"
-              onTimeUpdate={handleTimeUpdate}
+              className={`max-h-full max-w-full object-contain transition-opacity duration-150 ${
+                activeClipInfo ? 'opacity-100' : 'opacity-10'
+              }`}
               onEnded={() => setIsPlaying(false)}
               playsInline
               crossOrigin="anonymous"
               preload="auto"
             />
 
+            {/* Empty Gap Overlay when playhead is in a deleted or trimmed gap */}
+            {!activeClipInfo && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 backdrop-blur-xs text-neutral-400 z-10 pointer-events-none p-4 text-center">
+                <Scissors className="w-8 h-8 text-neutral-500 mb-2 opacity-60" />
+                <span className="text-xs font-semibold text-neutral-300 tracking-wide uppercase">
+                  Empty Timeline Gap
+                </span>
+                <span className="text-[11px] text-neutral-500 mt-0.5">
+                  Clip trimmed or deleted here — skips to next cut on play
+                </span>
+              </div>
+            )}
+
             {/* Captions Overlay Preview */}
-            <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none px-4">
+            <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none px-4 z-20">
               <span className="bg-black/75 backdrop-blur-xs text-white px-3 py-1 rounded-md text-sm font-semibold tracking-wide border border-white/10">
                 [AI Captions Preview synced at {formatSecondsToTimecode(currentTime)}]
               </span>

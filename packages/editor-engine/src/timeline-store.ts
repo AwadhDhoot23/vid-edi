@@ -24,7 +24,8 @@ export interface TimelineStoreState {
   setSelectedClipId: (id: string | null) => void;
   splitSelectedClip: () => void;
   removeClip: (clipId: string) => void;
-  trimClip: (clipId: string, newStart: number, newEnd: number) => void;
+  trimClip: (clipId: string, newStart: number, newEnd: number, recordHistory?: boolean) => void;
+  commitHistorySnapshot: (snapshot: Timeline) => void;
   undo: () => void;
   redo: () => void;
   resetTimeline: () => void;
@@ -155,7 +156,15 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
     });
   },
 
-  trimClip: (clipId: string, newStart: number, newEnd: number) => {
+  commitHistorySnapshot: (snapshot: Timeline) => {
+    const { past } = get();
+    set({
+      past: [...past, snapshot],
+      future: [],
+    });
+  },
+
+  trimClip: (clipId: string, newStart: number, newEnd: number, recordHistory = true) => {
     const { timeline, past } = get();
     if (newStart >= newEnd || newStart < 0) return;
 
@@ -185,9 +194,9 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
     };
 
     set({
-      past: [...past, timeline],
+      past: recordHistory ? [...past, timeline] : past,
       timeline: updatedTimeline,
-      future: [],
+      future: recordHistory ? [] : get().future,
     });
   },
 

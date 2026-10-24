@@ -17,6 +17,9 @@ export function MediaDropzone() {
       return;
     }
 
+    // Retain File handle for audio extraction and transcription
+    (window as unknown as { __activeVideoFile?: File }).__activeVideoFile = file;
+
     try {
       setIsProcessing(true);
       const inspected = await inspectBrowserVideoFile(file);

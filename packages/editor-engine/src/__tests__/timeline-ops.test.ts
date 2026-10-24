@@ -43,11 +43,12 @@ describe('Timeline Operations', () => {
     expect(splitClipAtTimestamp(sampleClip, 5)).toBeNull();
   });
 
-  it('trimClipBoundary updates clip source boundaries and duration', () => {
+  it('trimClipBoundary updates clip source boundaries, timelineStart, and duration', () => {
     const trimmed = trimClipBoundary(sampleClip, 12, 28);
     expect(trimmed).not.toBeNull();
     expect(trimmed?.sourceStart).toBe(12);
     expect(trimmed?.sourceEnd).toBe(28);
+    expect(trimmed?.timelineStart).toBe(7); // 5 + (12 - 10) = 7
     expect(trimmed?.timelineDuration).toBe(16);
   });
 

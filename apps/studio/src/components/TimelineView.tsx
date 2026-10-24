@@ -16,6 +16,8 @@ export function TimelineView() {
     splitSelectedClip,
     removeClip,
     trimClip,
+    commitHistorySnapshot,
+    activeSource,
     undo,
     redo,
     isPlaying,
@@ -83,9 +85,13 @@ export function TimelineView() {
     const initialClientX = e.clientX;
     const initialSourceStart = clip.sourceStart;
     const initialSourceEnd = clip.sourceEnd;
+    const preDragSnapshot = timeline;
+    let hasMoved = false;
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const deltaPx = moveEvent.clientX - initialClientX;
+      if (Math.abs(deltaPx) < 2) return;
+      hasMoved = true;
       const deltaSec = deltaPx / basePixelsPerSecond;
 
       if (type === 'start') {
@@ -93,16 +99,23 @@ export function TimelineView() {
           0,
           Math.min(initialSourceStart + deltaSec, initialSourceEnd - 0.5)
         );
-        trimClip(clip.id, newStart, initialSourceEnd);
+        trimClip(clip.id, newStart, initialSourceEnd, false);
       } else {
-        const newEnd = Math.max(initialSourceStart + 0.5, initialSourceEnd + deltaSec);
-        trimClip(clip.id, initialSourceStart, newEnd);
+        const maxSourceDuration = activeSource?.duration ?? Infinity;
+        const newEnd = Math.max(
+          initialSourceStart + 0.5,
+          Math.min(maxSourceDuration, initialSourceEnd + deltaSec)
+        );
+        trimClip(clip.id, initialSourceStart, newEnd, false);
       }
     };
 
     const onMouseUp = () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      if (hasMoved) {
+        commitHistorySnapshot(preDragSnapshot);
+      }
     };
 
     window.addEventListener('mousemove', onMouseMove);

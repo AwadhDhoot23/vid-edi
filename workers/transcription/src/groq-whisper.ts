@@ -1,4 +1,4 @@
-import type { TranscriptSegment, TranscriptWord } from '@vid-edi/shared-types';
+import type { TranscriptWord } from '@vid-edi/shared-types';
 
 export interface TranscriptionJobData {
   audioPath: string;

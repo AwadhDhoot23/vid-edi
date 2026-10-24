@@ -38,6 +38,7 @@ export function splitClipAtTimestamp(
 
 /**
  * Trims a clip's start or end boundary.
+ * When the start boundary moves, the clip's timelineStart advances accordingly.
  */
 export function trimClipBoundary(
   clip: Clip,
@@ -48,13 +49,62 @@ export function trimClipBoundary(
     return null;
   }
 
+  const deltaStart = (newSourceStart - clip.sourceStart) / clip.playbackRate;
+  const newTimelineStart = Math.max(0, clip.timelineStart + deltaStart);
   const newDuration = (newSourceEnd - newSourceStart) / clip.playbackRate;
+
   return {
     ...clip,
     sourceStart: newSourceStart,
     sourceEnd: newSourceEnd,
+    timelineStart: newTimelineStart,
     timelineDuration: newDuration,
   };
+}
+
+/**
+ * Resolves the active clip and mapped source media time for a given timeline timestamp.
+ * Checks video tracks (primary first).
+ */
+export function getActiveClipAtTime(
+  tracks: Track[],
+  timelineTime: number
+): { clip: Clip; sourceTime: number } | null {
+  const videoTracks = tracks.filter((t) => t.type === 'video');
+  for (const track of videoTracks) {
+    if (track.muted) continue;
+    for (const clip of track.clips) {
+      const clipStart = clip.timelineStart;
+      const clipEnd = clip.timelineStart + clip.timelineDuration;
+      if (timelineTime >= clipStart && timelineTime < clipEnd) {
+        const offset = (timelineTime - clipStart) * clip.playbackRate;
+        const sourceTime = clip.sourceStart + offset;
+        return { clip, sourceTime };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Finds the start timestamp of the next clip after a gap on video tracks.
+ */
+export function getNextClipStartTime(
+  tracks: Track[],
+  timelineTime: number
+): number | null {
+  let nextStart: number | null = null;
+  const videoTracks = tracks.filter((t) => t.type === 'video');
+  for (const track of videoTracks) {
+    for (const clip of track.clips) {
+      if (clip.timelineStart > timelineTime) {
+        if (nextStart === null || clip.timelineStart < nextStart) {
+          nextStart = clip.timelineStart;
+        }
+      }
+    }
+  }
+  return nextStart;
 }
 
 /**
