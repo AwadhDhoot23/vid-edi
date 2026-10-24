@@ -1,8 +1,18 @@
 import { useState } from 'react';
-import { Sparkles, Download, Undo, Redo, Scissors, Film, ArrowLeft } from 'lucide-react';
+import {
+  Download,
+  Undo,
+  Redo,
+  Scissors,
+  Film,
+  ArrowLeft,
+  BarChart3,
+  TrendingDown,
+} from 'lucide-react';
 import { Button, ThemeToggle, Badge } from '@vid-edi/ui';
 import { useTimelineStore } from '@vid-edi/editor-engine';
 import { ExportModal } from './ExportModal';
+import { AnalyticsModal } from './AnalyticsModal';
 
 interface HeaderProps {
   onGoHome?: () => void;
@@ -10,8 +20,12 @@ interface HeaderProps {
 
 export function Header({ onGoHome }: HeaderProps) {
   const [isExportOpen, setIsExportOpen] = useState(false);
-  const { undo, redo, past, future, splitSelectedClip, selectedClipId, activeSource } =
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+  const { undo, redo, past, future, splitSelectedClip, selectedClipId, activeSource, timeline } =
     useTimelineStore();
+
+  const originalDuration = activeSource?.duration ?? timeline.duration;
+  const timeSavedSec = Math.max(0, originalDuration - timeline.duration);
 
   return (
     <header className="h-13 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 backdrop-blur-md px-4 flex items-center justify-between z-20 shrink-0">
@@ -85,14 +99,27 @@ export function Header({ onGoHome }: HeaderProps) {
 
       {/* Right Actions & Theme */}
       <div className="flex items-center gap-2">
+        {timeSavedSec > 0.4 && (
+          <button
+            type="button"
+            onClick={() => setIsAnalyticsOpen(true)}
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-mono font-medium border border-emerald-500/25 hover:bg-emerald-500/20 transition-colors cursor-pointer"
+            title="View Project Analytics & Impact"
+          >
+            <TrendingDown className="w-3.5 h-3.5" />
+            <span>-{timeSavedSec.toFixed(1)}s pruned</span>
+          </button>
+        )}
+
         <Button
-          variant="coral"
+          variant="secondary"
           size="sm"
-          className="shadow-sm"
-          title="AI Assistant Ready"
+          onClick={() => setIsAnalyticsOpen(true)}
+          title="Project Analytics & Dead-Air Breakdown"
+          className="cursor-pointer"
         >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span className="font-medium">AI Planner</span>
+          <BarChart3 className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+          <span className="hidden sm:inline">Analytics</span>
         </Button>
 
         <Button
@@ -112,6 +139,7 @@ export function Header({ onGoHome }: HeaderProps) {
       </div>
 
       <ExportModal isOpen={isExportOpen} onClose={() => setIsExportOpen(false)} />
+      <AnalyticsModal isOpen={isAnalyticsOpen} onClose={() => setIsAnalyticsOpen(false)} />
     </header>
   );
 }

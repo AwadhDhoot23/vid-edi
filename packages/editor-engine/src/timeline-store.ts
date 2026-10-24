@@ -30,6 +30,7 @@ export interface TimelineStoreState {
   trimClip: (clipId: string, newStart: number, newEnd: number, recordHistory?: boolean) => void;
   removeSegment: (startSec: number, endSec: number, ripple?: boolean) => void;
   applyEditOperation: (op: EditOperation) => void;
+  recordHistoryOperation: (op: EditOperation) => void;
   setAspectRatio: (ratio: '16:9' | '9:16' | '1:1') => void;
   commitHistorySnapshot: (snapshot: Timeline) => void;
   undo: () => void;
@@ -252,6 +253,16 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
       const ratio = (op.params.aspectRatio as '16:9' | '9:16' | '1:1') || '9:16';
       setAspectRatio(ratio);
     }
+
+    set({
+      history: [...get().history, { ...op, status: 'accepted' }],
+    });
+  },
+
+  recordHistoryOperation: (op: EditOperation) => {
+    set({
+      history: [...get().history, op],
+    });
   },
 
   undo: () => {

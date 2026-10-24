@@ -22,10 +22,33 @@ export function VideoPlayer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
-  const { activeSource, currentTime, setCurrentTime, isPlaying, setIsPlaying, timeline } =
-    useTimelineStore();
+  const {
+    activeSource,
+    currentTime,
+    setCurrentTime,
+    isPlaying,
+    setIsPlaying,
+    timeline,
+    transcriptWords,
+  } = useTimelineStore();
 
   const activeClipInfo = getActiveClipAtTime(timeline.tracks, currentTime);
+
+  // Dynamic Kinetic Subtitles Calculation (Task 5.11)
+  const currentSourceTime = activeClipInfo?.sourceTime ?? currentTime;
+  const activeWordIndex = transcriptWords.findIndex(
+    (w) => currentSourceTime >= w.start && currentSourceTime <= w.end
+  );
+  const activeWord = activeWordIndex !== -1 ? transcriptWords[activeWordIndex] : null;
+
+  // 4 words window around current word
+  const subtitleSnippet =
+    activeWordIndex !== -1
+      ? transcriptWords.slice(
+          Math.max(0, activeWordIndex - 2),
+          Math.min(transcriptWords.length, activeWordIndex + 3)
+        )
+      : [];
 
   // Sync volume with HTML video element
   useEffect(() => {
@@ -168,12 +191,36 @@ export function VideoPlayer() {
               </div>
             )}
 
-            {/* Captions Overlay Preview */}
-            <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none px-4 z-20">
-              <span className="bg-black/75 backdrop-blur-xs text-white px-3 py-1 rounded-md text-sm font-semibold tracking-wide border border-white/10">
-                [AI Captions Preview synced at {formatSecondsToTimecode(currentTime)}]
-              </span>
-            </div>
+            {/* Dynamic Kinetic Subtitles Overlay (Task 5.11) */}
+            {subtitleSnippet.length > 0 ? (
+              <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none px-4 z-20">
+                <div className="bg-black/85 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20 shadow-2xl flex items-center gap-2 text-base sm:text-xl font-bold tracking-wide">
+                  {subtitleSnippet.map((w, idx) => {
+                    const isCurrent =
+                      w.text === activeWord?.text &&
+                      Math.abs(w.start - (activeWord?.start ?? -99)) < 0.05;
+                    return (
+                      <span
+                        key={`${w.start}_${idx}`}
+                        className={`transition-transform duration-100 ${
+                          isCurrent
+                            ? 'text-emerald-400 scale-110 drop-shadow-[0_0_12px_rgba(52,211,153,0.9)] underline decoration-emerald-400/50'
+                            : 'text-white/85'
+                        }`}
+                      >
+                        {w.text}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : activeClipInfo ? (
+              <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none px-4 z-20">
+                <span className="bg-black/60 backdrop-blur-xs text-white/70 px-2.5 py-0.5 rounded-md text-xs font-mono border border-white/10">
+                  {formatSecondsToTimecode(currentTime)}
+                </span>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center text-center p-8 text-neutral-500">
@@ -208,8 +255,8 @@ export function VideoPlayer() {
             size="icon"
             onClick={() => stepFrame(-1)}
             disabled={!activeSource}
-            title="Step back 1 frame (Left Arrow)"
-            className="w-8 h-8"
+            title="Step back 1 frame (use Left Arrow for 5s seek)"
+            className="w-8 h-8 cursor-pointer"
           >
             <SkipBack className="w-4 h-4" />
           </Button>
@@ -220,7 +267,7 @@ export function VideoPlayer() {
             onClick={() => setIsPlaying(!isPlaying)}
             disabled={!activeSource}
             title="Play / Pause (Space)"
-            className="w-9 h-9 rounded-full shadow-xs"
+            className="w-9 h-9 rounded-full shadow-xs cursor-pointer"
           >
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
           </Button>
@@ -230,8 +277,8 @@ export function VideoPlayer() {
             size="icon"
             onClick={() => stepFrame(1)}
             disabled={!activeSource}
-            title="Step forward 1 frame (Right Arrow)"
-            className="w-8 h-8"
+            title="Step forward 1 frame (use Right Arrow for 5s seek)"
+            className="w-8 h-8 cursor-pointer"
           >
             <SkipForward className="w-4 h-4" />
           </Button>
