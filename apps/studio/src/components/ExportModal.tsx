@@ -10,8 +10,12 @@ import {
   Monitor,
   Square,
   Clock,
+  PlayCircle,
+  HelpCircle,
+  CheckCircle2,
+  Loader2,
 } from 'lucide-react';
-import { Button, formatSecondsToTimecode } from '@vid-edi/ui';
+import { Button, formatSecondsToTimecode, Badge } from '@vid-edi/ui';
 import { useTimelineStore } from '@vid-edi/editor-engine';
 import {
   compileTimelineToFFmpeg,
@@ -23,6 +27,7 @@ import {
   downloadTextBlob,
 } from '@vid-edi/media-processing';
 import type { ExportPreset } from '@vid-edi/shared-types';
+import { renderTimelineInBrowser, type RenderProgress } from '../utils/browser-renderer';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -33,6 +38,9 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
   const { timeline, activeSource, transcriptWords } = useTimelineStore();
   const [selectedPreset, setSelectedPreset] = useState<ExportPreset>(STANDARD_EXPORT_PRESETS[0]!);
   const [copied, setCopied] = useState(false);
+  const [isRendering, setIsRendering] = useState(false);
+  const [renderProgress, setRenderProgress] = useState<RenderProgress | null>(null);
+  const [renderSuccess, setRenderSuccess] = useState(false);
 
   const compilation = useMemo(() => {
     const filename = activeSource ? activeSource.name : 'input.mp4';
@@ -74,19 +82,65 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
     }
   };
 
+  // Direct In-Browser Video Render & Download
+  const handleRenderVideoInBrowser = async () => {
+    if (!activeSource?.path) {
+      alert('No media source URL available to render.');
+      return;
+    }
+
+    try {
+      setIsRendering(true);
+      setRenderSuccess(false);
+
+      const blob = await renderTimelineInBrowser(
+        activeSource.path,
+        timeline,
+        selectedPreset,
+        (progress) => {
+          setRenderProgress(progress);
+        }
+      );
+
+      // Trigger browser download of final edited video
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const baseName = activeSource.name.replace(/\.[^/.]+$/, '') || 'videdi';
+      a.download = `${baseName}_cut_${selectedPreset.aspectRatio.replace(':', 'x')}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+
+      setRenderSuccess(true);
+      setTimeout(() => setRenderSuccess(false), 4000);
+    } catch (err) {
+      console.error('In-browser render failed', err);
+      alert(`Render failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsRendering(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-      <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden text-[var(--text-primary)]">
-        {/* Modal Header */}
-        <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 overflow-y-auto p-3 sm:p-6 flex justify-center items-start sm:items-center animate-spring-in">
+      <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3.5rem)] overflow-hidden text-[var(--text-primary)] my-auto">
+        {/* Modal Header (Fixed at top, never cut off) */}
+        <div className="shrink-0 p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-elevated)]/60">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[var(--accent-primary)]/15 border border-[var(--accent-primary)]/30 flex items-center justify-center text-[var(--accent-primary)]">
               <Film className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold tracking-tight">Export Project & Render Plan</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold tracking-tight">Export Project & Render Video</h2>
+                <Badge variant="teal" className="text-[10px]">
+                  Dual Engine
+                </Badge>
+              </div>
               <p className="text-xs text-[var(--text-tertiary)]">
-                Native FFmpeg command generation & reproducible project JSON
+                Direct in-browser download & lossless native FFmpeg pipeline
               </p>
             </div>
           </div>
@@ -101,9 +155,9 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
           </button>
         </div>
 
-        {/* Modal Content */}
-        <div className="p-5 flex flex-col gap-4 max-h-[75vh] overflow-y-auto">
-          {/* Duration Summary */}
+        {/* Modal Scrollable Body */}
+        <div className="flex-1 p-4 sm:p-5 flex flex-col gap-4 overflow-y-auto">
+          {/* Duration Comparison Cards */}
           <div className="grid grid-cols-3 gap-2.5 bg-[var(--bg-elevated)]/60 p-3 rounded-xl border border-[var(--border-subtle)] text-xs">
             <div>
               <span className="text-[var(--text-tertiary)] text-[11px] block">Original Source</span>
@@ -126,7 +180,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
           </div>
 
           {/* Aspect Ratio Preset Selection */}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
               Export Preset & Aspect Ratio
             </label>
@@ -140,7 +194,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
                     onClick={() => setSelectedPreset(preset)}
                     className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
                       isSelected
-                        ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10 shadow-xs'
+                        ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10 shadow-xs ring-1 ring-[var(--accent-primary)]'
                         : 'border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]'
                     }`}
                   >
@@ -157,7 +211,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
                       </span>
                     </div>
                     <span className="text-xs font-semibold mt-1 truncate">{preset.name}</span>
-                    <span className="text-[11px] text-[var(--text-tertiary)]">
+                    <span className="text-[11px] text-[var(--text-tertiary)] font-mono">
                       {preset.resolution.width}x{preset.resolution.height}
                     </span>
                   </button>
@@ -166,12 +220,79 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
             </div>
           </div>
 
-          {/* Native FFmpeg Command Box */}
+          {/* SECTION 1: Direct In-Browser Video Render & Download (NEW!) */}
+          <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <PlayCircle className="w-4 h-4 text-emerald-500" />
+                <span className="text-xs font-bold text-[var(--text-primary)]">
+                  1-Click In-Browser Video Download
+                </span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold px-2 py-0.5 rounded-full">
+                  Direct .webm / .mp4
+                </span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+              Renders your trimmed clips, extracted dead air, and chosen aspect ratio directly in your browser tab. No command line required!
+            </p>
+
+            {/* Active Render Progress Bar */}
+            {isRendering && renderProgress && (
+              <div className="flex flex-col gap-1.5 p-2.5 bg-black/40 rounded-lg border border-emerald-500/20">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="text-emerald-400 flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Rendering timeline: {renderProgress.percent}%
+                  </span>
+                  <span className="text-[var(--text-tertiary)]">
+                    {formatSecondsToTimecode(renderProgress.currentSec)} / {formatSecondsToTimecode(renderProgress.totalSec)}
+                  </span>
+                </div>
+                <div className="h-2 w-full bg-neutral-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500 transition-all duration-150"
+                    style={{ width: `${renderProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {renderSuccess && (
+              <div className="p-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-600 dark:text-emerald-300 text-xs flex items-center gap-2 font-medium">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Video rendered & downloaded successfully! Check your browser downloads.</span>
+              </div>
+            )}
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleRenderVideoInBrowser}
+              disabled={isRendering || !activeSource}
+              className="w-full text-xs h-9 font-semibold gap-2 shadow-xs cursor-pointer"
+            >
+              {isRendering ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Rendering Video in Browser...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  <span>Download Edited Video ({selectedPreset.aspectRatio} • WebM/MP4)</span>
+                </>
+              )}
+            </Button>
+          </div>
+
+          {/* SECTION 2: Native FFmpeg Command Box (For Lossless 4K Desktop Render) */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
-                <FileCode className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-                <span>Deterministic Native FFmpeg Command</span>
+                <FileCode className="w-3.5 h-3.5 text-[var(--accent-coral)]" />
+                <span>Lossless 4K Native FFmpeg Command</span>
               </label>
 
               <button
@@ -194,13 +315,17 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
             </div>
 
             <div className="relative">
-              <pre className="text-[11px] font-mono p-3 bg-black/80 text-emerald-300 rounded-xl border border-white/10 overflow-x-auto max-h-32 select-all whitespace-pre-wrap break-all leading-relaxed">
+              <pre className="text-[11px] font-mono p-3 bg-black/85 text-emerald-300 rounded-xl border border-white/10 overflow-x-auto max-h-24 select-all whitespace-pre-wrap break-all leading-relaxed">
                 {compilation.command}
               </pre>
             </div>
-            <p className="text-[11px] text-[var(--text-tertiary)]">
-              This command concatenates your exact timeline clips and applies aspect ratio cropping in native FFmpeg with zero audio drift.
-            </p>
+
+            <div className="p-2.5 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[11px] text-[var(--text-secondary)] flex items-start gap-2">
+              <HelpCircle className="w-3.5 h-3.5 text-[var(--accent-coral)] shrink-0 mt-0.5" />
+              <span>
+                <strong>Why FFmpeg CLI?</strong> Web browsers have strict RAM caps that crash on giant 4K files. This command lets you render unlimited 4K/60fps video on your machine with 10-bit lossless GPU acceleration!
+              </span>
+            </div>
           </div>
 
           {/* Quick Subtitle Downloads */}
@@ -214,7 +339,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
                 variant="secondary"
                 size="sm"
                 onClick={() => handleExportSubtitles('srt')}
-                className="h-7 text-xs"
+                className="h-7 text-xs cursor-pointer"
               >
                 Download .SRT
               </Button>
@@ -222,7 +347,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
                 variant="secondary"
                 size="sm"
                 onClick={() => handleExportSubtitles('vtt')}
-                className="h-7 text-xs"
+                className="h-7 text-xs cursor-pointer"
               >
                 Download .VTT
               </Button>
@@ -230,13 +355,13 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
           </div>
         </div>
 
-        {/* Modal Footer */}
-        <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-elevated)]/40 flex items-center justify-between">
+        {/* Modal Footer (Fixed at bottom) */}
+        <div className="shrink-0 p-3 sm:p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-elevated)]/60 flex items-center justify-between gap-2">
           <Button
             variant="secondary"
             size="sm"
             onClick={handleDownloadEditPlan}
-            className="text-xs h-8 gap-1.5"
+            className="text-xs h-8 gap-1.5 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Download Edit Plan (.json)</span>
@@ -247,18 +372,18 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
               variant="ghost"
               size="sm"
               onClick={onClose}
-              className="text-xs h-8"
+              className="text-xs h-8 cursor-pointer"
             >
               Close
             </Button>
             <Button
-              variant="primary"
+              variant="secondary"
               size="sm"
               onClick={handleCopyCommand}
-              className="text-xs h-8 gap-1.5"
+              className="text-xs h-8 gap-1.5 cursor-pointer"
             >
-              {copied ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>Copy Render Command</span>
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>Copy FFmpeg Command</span>
             </Button>
           </div>
         </div>
