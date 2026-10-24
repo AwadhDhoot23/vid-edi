@@ -45,6 +45,15 @@ export function TimelineView() {
       if (e.code === 'Space') {
         e.preventDefault();
         setIsPlaying(!isPlaying);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        const duration = timeline.duration || totalDuration;
+        const newTime = Math.min(duration, currentTime + 5);
+        setCurrentTime(newTime);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const newTime = Math.max(0, currentTime - 5);
+        setCurrentTime(newTime);
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedClipId) {
           e.preventDefault();
@@ -62,12 +71,27 @@ export function TimelineView() {
         } else {
           undo();
         }
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        redo();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, selectedClipId, setIsPlaying, removeClip, splitSelectedClip, undo, redo]);
+  }, [
+    isPlaying,
+    selectedClipId,
+    currentTime,
+    timeline.duration,
+    totalDuration,
+    setIsPlaying,
+    setCurrentTime,
+    removeClip,
+    splitSelectedClip,
+    undo,
+    redo,
+  ]);
 
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();

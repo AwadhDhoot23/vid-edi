@@ -5,7 +5,6 @@ import {
   Search,
   Check,
   Sparkles,
-  Key,
   Loader2,
   AlertCircle,
 } from 'lucide-react';
@@ -20,6 +19,10 @@ import {
   transcribeWithGroqWhisper,
 } from '@vid-edi/media-processing';
 import type { TranscriptWord } from '@vid-edi/shared-types';
+
+const DEFAULT_GROQ_KEY =
+  (import.meta.env.VITE_GROQ_API_KEY as string) ||
+  (typeof window !== 'undefined' ? localStorage.getItem('videdi_groq_api_key') || '' : '');
 
 const INITIAL_TRANSCRIPT: TranscriptWord[] = [
   { text: 'Welcome', start: 0.2, end: 0.6, confidence: 0.99 },
@@ -52,21 +55,20 @@ const INITIAL_TRANSCRIPT: TranscriptWord[] = [
 ];
 
 export function TranscriptPanel() {
-  const { currentTime, setCurrentTime, activeSource } = useTimelineStore();
+  const { currentTime, setCurrentTime, activeSource, setTranscriptWords } = useTimelineStore();
   const [words, setWords] = useState<TranscriptWord[]>(INITIAL_TRANSCRIPT);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState('');
 
-  // Groq API Key and Real Transcription States
-  const [groqApiKey, setGroqApiKey] = useState<string>(() => {
-    return localStorage.getItem('videdi_groq_api_key') || '';
-  });
-  const [showKeyModal, setShowKeyModal] = useState(false);
-  const [inputKey, setInputKey] = useState(groqApiKey);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeStatus, setTranscribeStatus] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Sync words into shared store for AI Planner pause detection
+  useEffect(() => {
+    setTranscriptWords(words);
+  }, [words, setTranscriptWords]);
 
   // Adapt words when new media source is loaded
   useEffect(() => {
@@ -132,19 +134,7 @@ export function TranscriptPanel() {
   // Segments for subtitle generation
   const segments = useMemo(() => wordsToSegments(words, 6), [words]);
 
-  const handleSaveKey = () => {
-    const trimmed = inputKey.trim();
-    setGroqApiKey(trimmed);
-    localStorage.setItem('videdi_groq_api_key', trimmed);
-    setShowKeyModal(false);
-  };
-
   const handleTranscribeWithGroq = async () => {
-    if (!groqApiKey) {
-      setShowKeyModal(true);
-      return;
-    }
-
     if (!activeSource) return;
 
     try {
@@ -166,7 +156,7 @@ export function TranscriptPanel() {
       const wavBlob = await extractAudioWavBlob(targetBlob);
 
       setTranscribeStatus('Transcribing with Groq Whisper Large v3...');
-      const realWords = await transcribeWithGroqWhisper(wavBlob, groqApiKey);
+      const realWords = await transcribeWithGroqWhisper(wavBlob, DEFAULT_GROQ_KEY);
 
       if (realWords.length > 0) {
         setWords(realWords);
@@ -176,7 +166,7 @@ export function TranscriptPanel() {
       }
     } catch (err: unknown) {
       console.error('Transcription failed:', err);
-      const msg = err instanceof Error ? err.message : 'Transcription failed. Check API key.';
+      const msg = err instanceof Error ? err.message : 'Transcription failed. Please check audio stream.';
       setErrorMessage(msg);
       setTranscribeStatus(null);
     } finally {
@@ -225,25 +215,8 @@ export function TranscriptPanel() {
         </div>
 
         <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              setInputKey(groqApiKey);
-              setShowKeyModal(true);
-            }}
-            className={`p-1 rounded-sm border text-[11px] flex items-center gap-1 transition-colors cursor-pointer ${
-              groqApiKey
-                ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
-                : 'border-[var(--border-strong)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]'
-            }`}
-            title={groqApiKey ? 'Groq Whisper API Key Connected' : 'Set Groq API Key'}
-          >
-            <Key className="w-3 h-3" />
-            <span>{groqApiKey ? 'API Ready' : 'API Key'}</span>
-          </button>
-
-          <span className="text-[10px] font-mono text-[var(--text-tertiary)] bg-[var(--bg-elevated)] px-1.5 py-0.5 rounded-sm border border-[var(--border-subtle)]">
-            Whisper v3
+          <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+            Groq Whisper v3
           </span>
         </div>
       </div>
@@ -266,11 +239,7 @@ export function TranscriptPanel() {
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>
-                  {groqApiKey
-                    ? 'Transcribe Video with Groq Whisper'
-                    : 'Enter Groq Key to Transcribe'}
-                </span>
+                <span>Transcribe Video with Groq Whisper</span>
               </>
             )}
           </Button>
@@ -392,63 +361,6 @@ export function TranscriptPanel() {
               <Download className="w-3 h-3 text-[var(--accent-primary)]" />
               <span>.VTT</span>
             </Button>
-          </div>
-        </div>
-      )}
-
-      {/* API Key Modal Dialog */}
-      {showKeyModal && (
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-xl p-4 w-full shadow-2xl flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-[var(--accent-primary)]" />
-                <h3 className="text-xs font-semibold text-[var(--text-primary)]">
-                  Groq Whisper API Key
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowKeyModal(false)}
-                className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-sm"
-              >
-                ✕
-              </button>
-            </div>
-
-            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-              To transcribe your own videos with word-level accuracy, paste your Groq API key below
-              (starts with <code className="font-mono bg-[var(--bg-elevated)] px-1 rounded-sm">gsk_</code>).
-              It is stored only locally in your browser.
-            </p>
-
-            <input
-              type="password"
-              value={inputKey}
-              onChange={(e) => setInputKey(e.target.value)}
-              placeholder="gsk_..."
-              className="w-full text-xs px-2.5 py-1.5 bg-[var(--bg-elevated)] border border-[var(--border-strong)] rounded-md text-[var(--text-primary)] font-mono focus:outline-hidden"
-            />
-
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowKeyModal(false)}
-                className="h-7 text-xs"
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleSaveKey}
-                className="h-7 text-xs gap-1"
-              >
-                <Check className="w-3.5 h-3.5" />
-                Save Key
-              </Button>
-            </div>
           </div>
         </div>
       )}

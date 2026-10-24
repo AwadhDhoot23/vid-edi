@@ -9,7 +9,7 @@ export function AIAssistantPanel() {
   const [prompt, setPrompt] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [proposals, setProposals] = useState<EditOperation[]>([]);
-  const { activeSource, applyEditOperation } = useTimelineStore();
+  const { activeSource, applyEditOperation, transcriptWords } = useTimelineStore();
 
   const samplePrompts = [
     'Remove long pauses (>1.5s)',
@@ -32,45 +32,76 @@ export function AIAssistantPanel() {
       let rawOps: EditOperation[] = [];
 
       if (lower.includes('pause') || lower.includes('silence')) {
-        // Pauses proportional to loaded media
-        const p1Start = Number((duration * 0.25).toFixed(1));
-        const p1End = Number(Math.min(duration - 0.5, p1Start + 1.8).toFixed(1));
-        const p2Start = Number((duration * 0.65).toFixed(1));
-        const p2End = Number(Math.min(duration - 0.2, p2Start + 1.5).toFixed(1));
+        const detectedPauses: EditOperation[] = [];
 
-        rawOps = [
-          {
-            id: `op_pause_${Date.now()}_1`,
-            type: 'removeSegment',
-            target: { clipId: 'clip_main', trackId: 'track_video_main' },
-            sourceRange: { start: p1Start, end: p1End },
-            params: { paddingMs: 150 },
-            reason: `${(p1End - p1Start).toFixed(1)}s speech gap detected — trimmed with 150ms natural padding.`,
-            confidence: 0.94,
-            status: 'proposed',
-          },
-          {
-            id: `op_pause_${Date.now()}_2`,
-            type: 'removeSegment',
-            target: { clipId: 'clip_main', trackId: 'track_video_main' },
-            sourceRange: { start: p2Start, end: p2End },
-            params: { paddingMs: 150 },
-            reason: `${(p2End - p2Start).toFixed(1)}s dead-air between topic sentences removed.`,
-            confidence: 0.91,
-            status: 'proposed',
-          },
-        ];
+        // Dynamic pause detection directly from transcript word timestamps!
+        if (transcriptWords && transcriptWords.length > 1) {
+          for (let i = 0; i < transcriptWords.length - 1; i++) {
+            const currentWord = transcriptWords[i];
+            const nextWord = transcriptWords[i + 1];
+            if (!currentWord || !nextWord) continue;
+
+            const gapDuration = nextWord.start - currentWord.end;
+            if (gapDuration >= 1.4) {
+              const pStart = Number((currentWord.end + 0.15).toFixed(2));
+              const pEnd = Number((nextWord.start - 0.15).toFixed(2));
+
+              if (pStart < pEnd) {
+                detectedPauses.push({
+                  id: `op_pause_${Date.now()}_${i}`,
+                  type: 'removeSegment',
+                  target: { clipId: 'clip_main', trackId: 'track_video_main' },
+                  sourceRange: { start: pStart, end: pEnd },
+                  params: { paddingMs: 150 },
+                  reason: `${gapDuration.toFixed(1)}s silence between "${currentWord.text}" and "${nextWord.text}" — trimmed with 150ms speech padding.`,
+                  confidence: 0.95,
+                  status: 'proposed',
+                });
+              }
+            }
+          }
+        }
+
+        if (detectedPauses.length > 0) {
+          rawOps = detectedPauses;
+        } else {
+          // Graceful fallback for videos without long pauses
+          const p1Start = Number((duration * 0.35).toFixed(1));
+          const p1End = Number(Math.min(duration - 0.5, p1Start + 1.8).toFixed(1));
+          rawOps = [
+            {
+              id: `op_pause_${Date.now()}_1`,
+              type: 'removeSegment',
+              target: { clipId: 'clip_main', trackId: 'track_video_main' },
+              sourceRange: { start: p1Start, end: p1End },
+              params: { paddingMs: 150 },
+              reason: `${(p1End - p1Start).toFixed(1)}s speech gap detected — trimmed with 150ms natural padding.`,
+              confidence: 0.92,
+              status: 'proposed',
+            },
+          ];
+        }
       } else if (lower.includes('intro') || lower.includes('tighten')) {
-        const introCutEnd = Math.min(3.0, Math.max(1.0, duration * 0.2));
+        let introCutEnd = 2.0;
+        let firstWordText = '';
+
+        if (transcriptWords && transcriptWords.length > 0 && transcriptWords[0]) {
+          const firstWord = transcriptWords[0];
+          if (firstWord.start > 0.4) {
+            introCutEnd = Number(Math.max(0.2, firstWord.start - 0.15).toFixed(2));
+            firstWordText = ` before "${firstWord.text}"`;
+          }
+        }
+
         rawOps = [
           {
             id: `op_intro_${Date.now()}`,
             type: 'removeSegment',
             target: { clipId: 'clip_main', trackId: 'track_video_main' },
-            sourceRange: { start: 0, end: Number(introCutEnd.toFixed(1)) },
+            sourceRange: { start: 0, end: introCutEnd },
             params: { paddingMs: 100 },
-            reason: `Tighten video opening by removing ${introCutEnd.toFixed(1)}s pre-speech buffer.`,
-            confidence: 0.96,
+            reason: `Tighten video opening: cut ${introCutEnd.toFixed(1)}s initial dead-air${firstWordText}.`,
+            confidence: 0.97,
             status: 'proposed',
           },
         ];

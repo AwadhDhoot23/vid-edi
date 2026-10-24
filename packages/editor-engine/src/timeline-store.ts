@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Timeline, Track, Clip, EditOperation, MediaSource } from '@vid-edi/shared-types';
+import type { Timeline, Track, Clip, EditOperation, MediaSource, TranscriptWord } from '@vid-edi/shared-types';
 import {
   createDefaultTimeline,
   recalculateTimelineDuration,
@@ -14,6 +14,7 @@ export interface TimelineStoreState {
   currentTime: number;
   isPlaying: boolean;
   selectedClipId: string | null;
+  transcriptWords: TranscriptWord[];
   history: EditOperation[];
   past: Timeline[];
   future: Timeline[];
@@ -23,6 +24,7 @@ export interface TimelineStoreState {
   setCurrentTime: (time: number) => void;
   setIsPlaying: (playing: boolean) => void;
   setSelectedClipId: (id: string | null) => void;
+  setTranscriptWords: (words: TranscriptWord[]) => void;
   splitSelectedClip: () => void;
   removeClip: (clipId: string) => void;
   trimClip: (clipId: string, newStart: number, newEnd: number, recordHistory?: boolean) => void;
@@ -41,6 +43,7 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
   currentTime: 0,
   isPlaying: false,
   selectedClipId: null,
+  transcriptWords: [],
   history: [],
   past: [],
   future: [],
@@ -91,6 +94,8 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
   setIsPlaying: (playing: boolean) => set({ isPlaying: playing }),
 
   setSelectedClipId: (id: string | null) => set({ selectedClipId: id }),
+
+  setTranscriptWords: (words: TranscriptWord[]) => set({ transcriptWords: words }),
 
   splitSelectedClip: () => {
     const { timeline, currentTime, selectedClipId, past } = get();
