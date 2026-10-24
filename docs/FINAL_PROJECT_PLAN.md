@@ -748,6 +748,33 @@ interface AIProviderAdapter {
 | **Phase 5: Polish** | `ui-ux-pro-max` | Final UX audit: accessibility, touch targets, contrast, animation timing. |
 | **Phase 5: Polish** | `apple-motion` | Micro-interaction polish, staggered animation choreography. |
 | **Phase 6: Landing** | `frontend-design` | Landing page visual impact, memorable hero section, feature showcase. |
+
+---
+
+### 8.1 Motion & Animation Engineering Specification (`apple-motion`)
+
+> [!NOTE]
+> Animation in Vid-Edi is not decorative fluff — it provides spatial orientation, mechanical tactile feedback, and confidence in AI operations. We adhere to Apple's Human Interface Guidelines for Fluid Interfaces and interruptible spring physics.
+
+#### 1. Core Physics & Timing Curves
+- **Standard Interactive Spring:** `mass: 1, stiffness: 320, damping: 28` (critically damped, zero oscillation, responsive within 12ms of pointer interaction).
+- **Tactile Click Feedback:** `scale: 0.98, transition: transform 80ms cubic-bezier(0.2, 0, 0, 1)` on all buttons, badges, and clip items.
+- **Rubber-Banding Snapping:** Clips dragged past timeline boundaries or track edges resist with exponential deceleration and snap back with a 240ms spring recovery curve.
+
+#### 2. Timeline Interaction Choreography
+- **Clip Drag & Reorder:** Selected clip lifts with elevated shadow (`shadow-xl`) and scales by `1.02`. Other clips smoothly slide to open space using CSS FLIP / spring transitions.
+- **Ripple Cut Collapse:** When a silence gap or clip is deleted, subsequent clips smoothly slide left to fill the vacancy with a 200ms ease-out spring rather than jumping instantly.
+- **Playhead Scrub Inertia:** Direct manipulation allows zero-latency scrubbing, while automated playback uses `requestAnimationFrame` interpolation.
+
+#### 3. Kinetic Subtitle Animation Engine
+- **Word-Level Pop:** Words cycle with playhead timestamp; active spoken word scales by `1.10` with high-contrast highlight pill, then smoothly settles back.
+- **Style Transitions:** Switching presets (Hormozi Viral → Minimalist Apple → Neon Glow) cross-fades font weight, text shadow, and background pill geometry with 180ms ease-out.
+
+#### 4. AI Proposal Transitions & Feedback
+- **Staggered Proposal Entrance:** When AI generates new edit proposals, cards slide into the inspector with a 40ms stagger delay and subtle 10px Y-axis translate.
+- **Approval Checkmark Pulse:** Clicking "Accept" triggers an immediate checkmark bounce and a subtle green wash across the target timeline segment.
+
+*(Implementation scheduled for Phase 5 UI Polish to keep Phase 1 Media & Phase 2 Timeline focused on robust deterministic logic).*
 | **Phase 6: Landing** | `design` | Social media assets, screenshots, banner images for README/docs. |
 | **Phase 6: Landing** | `slides` | Optional: demo presentation deck with Chart.js analytics visualizations. |
 | **All Phases** | `gravitas` | Scoped reconnaissance before every edit, evidence-backed verification, no assumptions. |
