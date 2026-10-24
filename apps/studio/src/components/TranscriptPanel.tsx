@@ -20,8 +20,9 @@ import {
 } from '@vid-edi/media-processing';
 import type { TranscriptWord } from '@vid-edi/shared-types';
 
+const envGroq = (import.meta as unknown as { env?: { VITE_GROQ_API_KEY?: string } }).env?.VITE_GROQ_API_KEY;
 const DEFAULT_GROQ_KEY =
-  (import.meta.env.VITE_GROQ_API_KEY as string) ||
+  envGroq ||
   (typeof window !== 'undefined' ? localStorage.getItem('videdi_groq_api_key') || '' : '');
 
 const INITIAL_TRANSCRIPT: TranscriptWord[] = [

@@ -1,12 +1,15 @@
+import { useState } from 'react';
 import { Sparkles, Download, Undo, Redo, Scissors, Film, ArrowLeft } from 'lucide-react';
 import { Button, ThemeToggle, Badge } from '@vid-edi/ui';
 import { useTimelineStore } from '@vid-edi/editor-engine';
+import { ExportModal } from './ExportModal';
 
 interface HeaderProps {
   onGoHome?: () => void;
 }
 
 export function Header({ onGoHome }: HeaderProps) {
+  const [isExportOpen, setIsExportOpen] = useState(false);
   const { undo, redo, past, future, splitSelectedClip, selectedClipId, activeSource } =
     useTimelineStore();
 
@@ -96,7 +99,9 @@ export function Header({ onGoHome }: HeaderProps) {
           variant="primary"
           size="sm"
           disabled={!activeSource}
-          title="Export Project"
+          onClick={() => setIsExportOpen(true)}
+          title="Export Project & Render Plan"
+          className="cursor-pointer"
         >
           <Download className="w-3.5 h-3.5" />
           <span>Export</span>
@@ -105,6 +110,8 @@ export function Header({ onGoHome }: HeaderProps) {
         <div className="h-5 w-px bg-[var(--border-subtle)] mx-1" />
         <ThemeToggle />
       </div>
+
+      <ExportModal isOpen={isExportOpen} onClose={() => setIsExportOpen(false)} />
     </header>
   );
 }
