@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   splitClipAtTimestamp,
   trimClipBoundary,
+  removeSegmentFromTracks,
   recalculateTimelineDuration,
   createDefaultTimeline,
 } from '../timeline-ops';
@@ -100,5 +101,48 @@ describe('Timeline Operations', () => {
       'audio',
       'caption',
     ]);
+  });
+
+  it('removeSegmentFromTracks slices middle segment and ripples subsequent footage', () => {
+    const tracks: Track[] = [
+      {
+        id: 't_main',
+        name: 'Video',
+        type: 'video',
+        muted: false,
+        locked: false,
+        volume: 1,
+        clips: [
+          {
+            id: 'clip_full',
+            sourceId: 'src_1',
+            sourceStart: 0,
+            sourceEnd: 15,
+            timelineStart: 0,
+            timelineDuration: 15,
+            effects: [],
+            playbackRate: 1,
+            volume: 1,
+          },
+        ],
+      },
+    ];
+
+    // Remove 5s to 8s (3s pause) with ripple
+    const updated = removeSegmentFromTracks(tracks, 5, 8, true);
+    const clips = updated[0]?.clips ?? [];
+    expect(clips.length).toBe(2);
+
+    // Left clip: 0 to 5s
+    expect(clips[0]?.timelineStart).toBe(0);
+    expect(clips[0]?.timelineDuration).toBe(5);
+    expect(clips[0]?.sourceStart).toBe(0);
+    expect(clips[0]?.sourceEnd).toBe(5);
+
+    // Right clip (rippled): starts at 5s, duration 7s (15 - 8), source 8 to 15s
+    expect(clips[1]?.timelineStart).toBe(5);
+    expect(clips[1]?.timelineDuration).toBe(7);
+    expect(clips[1]?.sourceStart).toBe(8);
+    expect(clips[1]?.sourceEnd).toBe(15);
   });
 });

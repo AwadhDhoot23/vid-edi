@@ -5,6 +5,7 @@ import {
   recalculateTimelineDuration,
   splitClipAtTimestamp,
   trimClipBoundary,
+  removeSegmentFromTracks,
 } from './timeline-ops';
 
 export interface TimelineStoreState {
@@ -25,6 +26,9 @@ export interface TimelineStoreState {
   splitSelectedClip: () => void;
   removeClip: (clipId: string) => void;
   trimClip: (clipId: string, newStart: number, newEnd: number, recordHistory?: boolean) => void;
+  removeSegment: (startSec: number, endSec: number, ripple?: boolean) => void;
+  applyEditOperation: (op: EditOperation) => void;
+  setAspectRatio: (ratio: '16:9' | '9:16' | '1:1') => void;
   commitHistorySnapshot: (snapshot: Timeline) => void;
   undo: () => void;
   redo: () => void;
@@ -198,6 +202,51 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
       timeline: updatedTimeline,
       future: recordHistory ? [] : get().future,
     });
+  },
+
+  removeSegment: (startSec: number, endSec: number, ripple = true) => {
+    const { timeline, past } = get();
+    const updatedTracks = removeSegmentFromTracks(timeline.tracks, startSec, endSec, ripple);
+    const updatedTimeline: Timeline = {
+      ...timeline,
+      tracks: updatedTracks,
+      duration: recalculateTimelineDuration(updatedTracks),
+    };
+    set({
+      past: [...past, timeline],
+      timeline: updatedTimeline,
+      future: [],
+    });
+  },
+
+  setAspectRatio: (ratio: '16:9' | '9:16' | '1:1') => {
+    const { timeline, past } = get();
+    let resolution = { width: 1920, height: 1080 };
+    if (ratio === '9:16') {
+      resolution = { width: 1080, height: 1920 };
+    } else if (ratio === '1:1') {
+      resolution = { width: 1080, height: 1080 };
+    }
+    set({
+      past: [...past, timeline],
+      timeline: {
+        ...timeline,
+        resolution,
+      },
+      future: [],
+    });
+  },
+
+  applyEditOperation: (op: EditOperation) => {
+    const { removeSegment, trimClip, setAspectRatio } = get();
+    if (op.type === 'removeSegment' && op.sourceRange) {
+      removeSegment(op.sourceRange.start, op.sourceRange.end, true);
+    } else if (op.type === 'trimClip' && op.sourceRange) {
+      trimClip(op.target.clipId, op.sourceRange.start, op.sourceRange.end, true);
+    } else if (op.type === 'setAspectRatio') {
+      const ratio = (op.params.aspectRatio as '16:9' | '9:16' | '1:1') || '9:16';
+      setAspectRatio(ratio);
+    }
   },
 
   undo: () => {

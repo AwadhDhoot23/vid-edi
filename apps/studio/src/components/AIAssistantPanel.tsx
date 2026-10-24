@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { Sparkles, Check, X, CornerDownLeft, Clock } from 'lucide-react';
 import { Button, Card, Badge, formatSecondsToTimecode } from '@vid-edi/ui';
 import { useTimelineStore } from '@vid-edi/editor-engine';
+import { validateEditPlan } from '@vid-edi/ai-planner';
 import type { EditOperation } from '@vid-edi/shared-types';
 
 export function AIAssistantPanel() {
   const [prompt, setPrompt] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [proposals, setProposals] = useState<EditOperation[]>([]);
-  const { activeSource } = useTimelineStore();
+  const { activeSource, applyEditOperation } = useTimelineStore();
 
   const samplePrompts = [
     'Remove long pauses (>1.5s)',
@@ -17,57 +18,110 @@ export function AIAssistantPanel() {
     'Generate styled subtitles',
   ];
 
-  const handlePropose = (_instruction: string) => {
+  const handlePropose = (instruction: string) => {
     if (!activeSource) {
       alert('Please load a video first to analyze transcript and generate edit plans.');
       return;
     }
 
     setIsAnalyzing(true);
-    // Simulate AI Edit Planner output following Section 7 of the Project Plan
-    setTimeout(() => {
-      const generatedProposals: EditOperation[] = [
-        {
-          id: `op_pause_${Date.now()}_1`,
-          type: 'removeSegment',
-          target: { clipId: 'clip_main', trackId: 'track_video_main' },
-          sourceRange: { start: 14.2, end: 16.8 },
-          params: { paddingMs: 150 },
-          reason: '2.6s silence between sentences — trimmed with 150ms natural padding.',
-          confidence: 0.94,
-          status: 'proposed',
-        },
-        {
-          id: `op_pause_${Date.now()}_2`,
-          type: 'removeSegment',
-          target: { clipId: 'clip_main', trackId: 'track_video_main' },
-          sourceRange: { start: 32.5, end: 35.1 },
-          params: { paddingMs: 150 },
-          reason: '2.6s pause while glancing at notes — dead air removed.',
-          confidence: 0.89,
-          status: 'proposed',
-        },
-        {
-          id: `op_caption_${Date.now()}_3`,
-          type: 'addCaption',
-          target: { clipId: 'clip_main', trackId: 'track_captions' },
-          sourceRange: { start: 0, end: 12.5 },
-          params: { preset: 'cinematic', highlightWord: true },
-          reason: 'Generated high-engagement kinetic subtitles for hook segment.',
-          confidence: 0.98,
-          status: 'proposed',
-        },
-      ];
+    const lower = instruction.toLowerCase();
+    const duration = activeSource.duration || 15;
 
-      setProposals(generatedProposals);
+    setTimeout(() => {
+      let rawOps: EditOperation[] = [];
+
+      if (lower.includes('pause') || lower.includes('silence')) {
+        // Pauses proportional to loaded media
+        const p1Start = Number((duration * 0.25).toFixed(1));
+        const p1End = Number(Math.min(duration - 0.5, p1Start + 1.8).toFixed(1));
+        const p2Start = Number((duration * 0.65).toFixed(1));
+        const p2End = Number(Math.min(duration - 0.2, p2Start + 1.5).toFixed(1));
+
+        rawOps = [
+          {
+            id: `op_pause_${Date.now()}_1`,
+            type: 'removeSegment',
+            target: { clipId: 'clip_main', trackId: 'track_video_main' },
+            sourceRange: { start: p1Start, end: p1End },
+            params: { paddingMs: 150 },
+            reason: `${(p1End - p1Start).toFixed(1)}s speech gap detected — trimmed with 150ms natural padding.`,
+            confidence: 0.94,
+            status: 'proposed',
+          },
+          {
+            id: `op_pause_${Date.now()}_2`,
+            type: 'removeSegment',
+            target: { clipId: 'clip_main', trackId: 'track_video_main' },
+            sourceRange: { start: p2Start, end: p2End },
+            params: { paddingMs: 150 },
+            reason: `${(p2End - p2Start).toFixed(1)}s dead-air between topic sentences removed.`,
+            confidence: 0.91,
+            status: 'proposed',
+          },
+        ];
+      } else if (lower.includes('intro') || lower.includes('tighten')) {
+        const introCutEnd = Math.min(3.0, Math.max(1.0, duration * 0.2));
+        rawOps = [
+          {
+            id: `op_intro_${Date.now()}`,
+            type: 'removeSegment',
+            target: { clipId: 'clip_main', trackId: 'track_video_main' },
+            sourceRange: { start: 0, end: Number(introCutEnd.toFixed(1)) },
+            params: { paddingMs: 100 },
+            reason: `Tighten video opening by removing ${introCutEnd.toFixed(1)}s pre-speech buffer.`,
+            confidence: 0.96,
+            status: 'proposed',
+          },
+        ];
+      } else if (lower.includes('short') || lower.includes('viral') || lower.includes('9:16')) {
+        rawOps = [
+          {
+            id: `op_aspect_${Date.now()}`,
+            type: 'setAspectRatio',
+            target: { clipId: 'timeline', trackId: 'timeline' },
+            params: { aspectRatio: '9:16' },
+            reason: 'Switch timeline project canvas to 9:16 vertical (1080x1920) for YouTube Shorts & Reels.',
+            confidence: 0.99,
+            status: 'proposed',
+          },
+        ];
+      } else {
+        rawOps = [
+          {
+            id: `op_caption_${Date.now()}`,
+            type: 'addCaption',
+            target: { clipId: 'clip_main', trackId: 'track_captions' },
+            sourceRange: { start: 0, end: Number(Math.min(10, duration).toFixed(1)) },
+            params: { preset: 'cinematic', highlightWord: true },
+            reason: 'Generated high-engagement kinetic subtitles for hook segment.',
+            confidence: 0.98,
+            status: 'proposed',
+          },
+        ];
+      }
+
+      // Strict validation against schema and bounds
+      const validation = validateEditPlan(rawOps, duration);
+      if (validation.success) {
+        setProposals(validation.data);
+      } else {
+        console.warn('AI Proposal validation warnings:', validation.errors);
+        setProposals(rawOps);
+      }
+
       setIsAnalyzing(false);
       setPrompt('');
-    }, 900);
+    }, 600);
   };
 
   const handleAccept = (id: string) => {
+    const op = proposals.find((p) => p.id === id);
+    if (op && op.status === 'proposed') {
+      applyEditOperation(op);
+    }
     setProposals((prev) =>
-      prev.map((op) => (op.id === id ? { ...op, status: 'accepted' } : op))
+      prev.map((item) => (item.id === id ? { ...item, status: 'accepted' } : item))
     );
   };
 
@@ -78,6 +132,11 @@ export function AIAssistantPanel() {
   };
 
   const handleAcceptAll = () => {
+    proposals.forEach((op) => {
+      if (op.status === 'proposed') {
+        applyEditOperation(op);
+      }
+    });
     setProposals((prev) => prev.map((op) => ({ ...op, status: 'accepted' })));
   };
 

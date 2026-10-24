@@ -180,3 +180,97 @@ export function createDefaultTimeline(): Timeline {
     ],
   };
 }
+
+/**
+ * Cuts out a time interval [startSec, endSec] across all clips on the tracks.
+ * If ripple is true, shifts all subsequent media leftward to close the gap.
+ */
+export function removeSegmentFromTracks(
+  tracks: Track[],
+  startSec: number,
+  endSec: number,
+  ripple = true
+): Track[] {
+  if (startSec >= endSec || startSec < 0) return tracks;
+  const cutDuration = endSec - startSec;
+
+  return tracks.map((track) => {
+    const nextClips: Clip[] = [];
+
+    for (const clip of track.clips) {
+      const clipStart = clip.timelineStart;
+      const clipEnd = clip.timelineStart + clip.timelineDuration;
+
+      // Case 1: Clip ends before the cut range starts
+      if (clipEnd <= startSec) {
+        nextClips.push(clip);
+        continue;
+      }
+
+      // Case 2: Clip starts after the cut range ends
+      if (clipStart >= endSec) {
+        nextClips.push({
+          ...clip,
+          timelineStart: ripple ? Math.max(0, clip.timelineStart - cutDuration) : clip.timelineStart,
+        });
+        continue;
+      }
+
+      // Case 3: Cut is strictly inside the clip (clip is split in two, middle cut out)
+      if (clipStart < startSec && clipEnd > endSec) {
+        const leftDuration = startSec - clipStart;
+        const leftClip: Clip = {
+          ...clip,
+          id: `${clip.id}_a_${Math.round(startSec)}`,
+          sourceEnd: clip.sourceStart + leftDuration * clip.playbackRate,
+          timelineDuration: leftDuration,
+        };
+
+        const rightOffset = (endSec - clipStart) * clip.playbackRate;
+        const rightDuration = clipEnd - endSec;
+        const rightClip: Clip = {
+          ...clip,
+          id: `${clip.id}_b_${Math.round(endSec)}`,
+          sourceStart: clip.sourceStart + rightOffset,
+          timelineStart: ripple ? startSec : endSec,
+          timelineDuration: rightDuration,
+        };
+
+        nextClips.push(leftClip, rightClip);
+        continue;
+      }
+
+      // Case 4: Cut overlaps the end of the clip
+      if (clipStart < startSec && clipEnd <= endSec) {
+        const remainingDuration = startSec - clipStart;
+        nextClips.push({
+          ...clip,
+          sourceEnd: clip.sourceStart + remainingDuration * clip.playbackRate,
+          timelineDuration: remainingDuration,
+        });
+        continue;
+      }
+
+      // Case 5: Cut overlaps the beginning of the clip
+      if (clipStart >= startSec && clipEnd > endSec) {
+        const cutInClip = endSec - clipStart;
+        const remainingDuration = clipEnd - endSec;
+        nextClips.push({
+          ...clip,
+          sourceStart: clip.sourceStart + cutInClip * clip.playbackRate,
+          timelineStart: ripple ? startSec : endSec,
+          timelineDuration: remainingDuration,
+        });
+        continue;
+      }
+
+      // Case 6: Clip is completely enclosed within the cut -> dropped/deleted
+    }
+
+    return {
+      ...track,
+      clips: nextClips,
+    };
+  });
+}
+
