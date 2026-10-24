@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Download,
@@ -123,9 +124,9 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 overflow-y-auto p-3 sm:p-6 flex justify-center items-start sm:items-center animate-spring-in">
-      <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3.5rem)] overflow-hidden text-[var(--text-primary)] my-auto">
+  return createPortal(
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] overflow-y-auto p-3 sm:p-6 flex justify-center items-center animate-spring-in">
+      <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden text-[var(--text-primary)] my-auto relative">
         {/* Modal Header (Fixed at top, never cut off) */}
         <div className="shrink-0 p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-elevated)]/60">
           <div className="flex items-center gap-2.5">
@@ -388,6 +389,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

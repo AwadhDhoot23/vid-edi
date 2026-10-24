@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { X, TrendingDown, Clock, Scissors, CheckCircle, BarChart3, Sparkles } from 'lucide-react';
 import { Button, Badge, formatSecondsToTimecode } from '@vid-edi/ui';
 import { useTimelineStore } from '@vid-edi/editor-engine';
@@ -24,9 +25,9 @@ export function AnalyticsModal({ isOpen, onClose }: AnalyticsModalProps) {
 
   const appliedCount = history.filter((h) => h.status === 'accepted').length;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-spring-in">
-      <div className="w-full max-w-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-spring-in">
+      <div className="w-full max-w-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-2xl shadow-2xl overflow-hidden flex flex-col my-auto relative">
         {/* Modal Header */}
         <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface)]">
           <div className="flex items-center gap-2.5">
@@ -160,6 +161,7 @@ export function AnalyticsModal({ isOpen, onClose }: AnalyticsModalProps) {
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
