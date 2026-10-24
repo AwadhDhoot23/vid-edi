@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@import "@vid-edi/ui/src/styles/theme.css";
+
+html, body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}

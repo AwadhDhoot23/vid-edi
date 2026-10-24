@@ -1,0 +1,25 @@
+{
+  "name": "@vid-edi/worker-transcription",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Background transcription worker using Groq Whisper API with chunking & word-level timestamps",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@vid-edi/shared-types": "workspace:*",
+    "bullmq": "^5.41.0",
+    "groq-sdk": "^0.15.0",
+    "ioredis": "^5.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "@vid-edi/config": "workspace:*",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@vid-edi/ai-planner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Edit Planner adapter layer, Zod validation pipeline, and prompt orchestrator",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@vid-edi/shared-types": "workspace:*",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@vid-edi/config": "workspace:*",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7"
+  }
+}

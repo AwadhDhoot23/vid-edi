@@ -1,0 +1,20 @@
+{
+  "name": "@vid-edi/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared TypeScript definitions and interfaces for Vid-Edi",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@vid-edi/config": "workspace:*",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2"
+  }
+}

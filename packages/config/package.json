@@ -1,0 +1,9 @@
+{
+  "name": "@vid-edi/config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared configurations for TypeScript, ESLint, and tooling",
+  "files": [
+    "tsconfig.base.json"
+  ]
+}

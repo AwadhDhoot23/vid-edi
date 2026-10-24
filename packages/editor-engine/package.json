@@ -1,0 +1,27 @@
+{
+  "name": "@vid-edi/editor-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Framework-agnostic timeline state management, undo/redo, and clip operations",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@vid-edi/shared-types": "workspace:*",
+    "immer": "^10.1.1",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@vid-edi/config": "workspace:*",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7"
+  }
+}
