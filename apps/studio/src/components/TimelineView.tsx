@@ -71,7 +71,7 @@ export function TimelineView() {
                 variant="secondary"
                 size="sm"
                 onClick={splitSelectedClip}
-                className="h-7 text-xs px-2 gap-1 text-[var(--text-primary)]"
+                className="h-7 text-xs px-2.5 gap-1.5 text-[var(--text-primary)] border border-[var(--border-strong)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] font-medium cursor-pointer"
                 title="Split clip at playhead"
               >
                 <Scissors className="w-3 h-3 text-[var(--accent-primary)]" />
@@ -81,10 +81,10 @@ export function TimelineView() {
                 variant="danger"
                 size="sm"
                 onClick={() => removeClip(selectedClipId)}
-                className="h-7 text-xs px-2 gap-1"
+                className="h-7 text-xs px-2.5 gap-1.5 bg-rose-500 hover:bg-rose-600 text-white font-medium shadow-xs border border-rose-600 cursor-pointer"
                 title="Delete selected clip"
               >
-                <Trash2 className="w-3 h-3" />
+                <Trash2 className="w-3 h-3 text-white" />
                 <span>Delete</span>
               </Button>
             </div>

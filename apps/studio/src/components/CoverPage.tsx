@@ -402,7 +402,7 @@ export function CoverPage({ onLaunchStudio }: CoverPageProps) {
             </div>
 
             {/* Showcase Stage Interior */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[500px]">
+            <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[540px]">
               {/* Left Column: Video Preview & Subtitles */}
               <div className="lg:col-span-8 bg-neutral-950 p-6 flex flex-col justify-between relative overflow-hidden">
                 {/* Floating Inspection Pill */}
@@ -434,7 +434,7 @@ export function CoverPage({ onLaunchStudio }: CoverPageProps) {
                 <div className="my-auto py-4 flex flex-col items-center justify-center text-center">
                   {activeTab === 'shorts' ? (
                     /* World-Class iPhone 16 Pro Smartphone 9:16 Mockup */
-                    <div className="relative w-[272px] h-[400px] rounded-[36px] bg-gradient-to-b from-neutral-800 via-neutral-900 to-neutral-800 border-[3.5px] border-neutral-600/90 shadow-2xl p-2.5 flex flex-col justify-between overflow-hidden ring-1 ring-white/10">
+                    <div className="relative w-[280px] h-[415px] rounded-[38px] bg-gradient-to-b from-neutral-800 via-neutral-900 to-neutral-800 border-[3.5px] border-neutral-600/90 shadow-2xl p-2.5 flex flex-col justify-between overflow-hidden ring-1 ring-white/10">
                       {/* Top iOS Status Bar */}
                       <div className="relative z-30 px-3 pt-0.5 flex items-center justify-between text-[10px] font-mono text-white/90">
                         <span className="font-semibold">9:41</span>
@@ -452,7 +452,7 @@ export function CoverPage({ onLaunchStudio }: CoverPageProps) {
                       </div>
 
                       {/* Video Content Canvas inside phone */}
-                      <div className="absolute inset-2 top-2 rounded-[28px] bg-gradient-to-tr from-slate-950 via-neutral-900 to-indigo-950 overflow-hidden flex flex-col justify-between p-3">
+                      <div className="absolute inset-2 top-2 rounded-[30px] bg-gradient-to-tr from-slate-950 via-neutral-900 to-indigo-950 overflow-hidden flex flex-col justify-between p-3">
                         {/* Studio Acoustic Panels Pattern (Subtle Background) */}
                         <div className="absolute inset-0 opacity-15 pointer-events-none">
                           <div className="w-full h-full bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:16px_16px]" />
@@ -508,7 +508,7 @@ export function CoverPage({ onLaunchStudio }: CoverPageProps) {
                         </div>
 
                         {/* Kinetic Viral Subtitles (Corrected, High-Impact & Ultra-Legible with Right Social Clearance) */}
-                        <div className="z-20 text-center mb-8 pl-1 pr-8">
+                        <div className="z-20 text-center mb-7 pl-1 pr-9">
                           {captionPreset === 'viral' ? (
                             /* Hormozi-Style Kinetic Pop Subtitle */
                             <div className="inline-block bg-neutral-950/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20 shadow-2xl max-w-[175px]">
@@ -534,40 +534,38 @@ export function CoverPage({ onLaunchStudio }: CoverPageProps) {
                               </div>
                             </div>
                           ) : captionPreset === 'minimal' ? (
-                            /* Apple Minimal Translucent Pill */
-                            <div className="inline-block bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/30 text-white font-medium text-[10px] shadow-lg max-w-[175px]">
-                              <span className="opacity-80">"</span>
+                            /* Apple Minimal Translucent Pill (Multi-line wrapped cleanly) */
+                            <div className="inline-flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5 bg-neutral-950/85 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/20 text-white font-medium text-[10px] shadow-xl max-w-[170px] text-center leading-snug">
+                              <span className="opacity-70 text-amber-400">“</span>
                               {currentWords.map((w, idx) => (
                                 <span
                                   key={idx}
-                                  className={`mx-0.5 ${
+                                  className={
                                     idx === activeWordIndex
-                                      ? 'text-amber-300 font-bold underline decoration-amber-400'
-                                      : 'text-neutral-100'
-                                  }`}
+                                      ? 'text-amber-300 font-bold underline decoration-amber-400 decoration-1'
+                                      : 'text-neutral-200'
+                                  }
                                 >
                                   {w.toLowerCase()}
                                 </span>
                               ))}
-                              <span className="opacity-80">"</span>
+                              <span className="opacity-70 text-amber-400">”</span>
                             </div>
                           ) : (
                             /* Cyber Neon Cyan */
-                            <div className="inline-block bg-neutral-950/80 backdrop-blur-md px-2.5 py-1 rounded-lg border border-cyan-400/50 shadow-[0_0_15px_rgba(34,211,238,0.3)] max-w-[175px]">
-                              <div className="flex flex-wrap items-center justify-center gap-1 text-[10px] font-mono font-bold">
-                                {currentWords.map((word, idx) => (
-                                  <span
-                                    key={idx}
-                                    className={
-                                      idx === activeWordIndex
-                                        ? 'text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.9)] scale-110'
-                                        : 'text-neutral-400'
-                                    }
-                                  >
-                                    {word}
-                                  </span>
-                                ))}
-                              </div>
+                            <div className="inline-flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5 bg-neutral-950/85 backdrop-blur-md px-3 py-1 rounded-lg border border-cyan-400/50 shadow-[0_0_15px_rgba(34,211,238,0.3)] max-w-[170px] text-center">
+                              {currentWords.map((word, idx) => (
+                                <span
+                                  key={idx}
+                                  className={`text-[10px] font-mono font-bold ${
+                                    idx === activeWordIndex
+                                      ? 'text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.9)] scale-105'
+                                      : 'text-neutral-400'
+                                  }`}
+                                >
+                                  {word}
+                                </span>
+                              ))}
                             </div>
                           )}
                         </div>
