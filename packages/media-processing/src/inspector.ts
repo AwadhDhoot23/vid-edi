@@ -20,11 +20,10 @@ export async function inspectBrowserVideoFile(file: File): Promise<MediaSource> 
     const objectUrl = URL.createObjectURL(file);
 
     video.onloadedmetadata = () => {
-      URL.revokeObjectURL(objectUrl);
       resolve({
         id: `source_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         name: file.name,
-        path: file.name,
+        path: objectUrl, // Retain objectUrl so <video src={path} /> can immediately stream and play the uploaded file
         size: file.size,
         duration: video.duration || 0,
         width: video.videoWidth || 1920,

@@ -1,11 +1,13 @@
-import { useRef, useEffect } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Maximize, RotateCcw } from 'lucide-react';
+import { useRef, useEffect, useState } from 'react';
+import { Play, Pause, SkipBack, SkipForward, Maximize, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { Button, formatSecondsToTimecode } from '@vid-edi/ui';
 import { useTimelineStore } from '@vid-edi/editor-engine';
 
 export function VideoPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
   const { activeSource, currentTime, setCurrentTime, isPlaying, setIsPlaying, timeline } =
     useTimelineStore();
 
@@ -18,6 +20,14 @@ export function VideoPlayer() {
       video.currentTime = currentTime;
     }
   }, [currentTime]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    video.volume = isMuted ? 0 : volume;
+    video.muted = isMuted;
+  }, [volume, isMuted]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -71,6 +81,8 @@ export function VideoPlayer() {
               onTimeUpdate={handleTimeUpdate}
               onEnded={() => setIsPlaying(false)}
               playsInline
+              crossOrigin="anonymous"
+              preload="auto"
             />
 
             {/* Captions Overlay Preview */}
@@ -156,8 +168,41 @@ export function VideoPlayer() {
           </Button>
         </div>
 
-        {/* Secondary controls (Speed, Audio, Fullscreen) */}
-        <div className="flex items-center gap-2">
+        {/* Secondary controls (Speed, Volume, Fullscreen) */}
+        <div className="flex items-center gap-3">
+          {/* Volume Control */}
+          <div className="flex items-center gap-1.5 group">
+            <button
+              type="button"
+              onClick={() => setIsMuted(!isMuted)}
+              disabled={!activeSource}
+              className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md disabled:opacity-40"
+              title={isMuted ? 'Unmute' : 'Mute'}
+            >
+              {isMuted || volume === 0 ? (
+                <VolumeX className="w-4 h-4" />
+              ) : (
+                <Volume2 className="w-4 h-4" />
+              )}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={isMuted ? 0 : volume}
+              disabled={!activeSource}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setVolume(val);
+                if (val > 0 && isMuted) setIsMuted(false);
+              }}
+              className="w-14 h-1 accent-[var(--accent-primary)] bg-[var(--border-subtle)] rounded-lg cursor-pointer disabled:opacity-40"
+              title={`Volume: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
+            />
+          </div>
+
+          {/* Speed Selector */}
           <select
             className="text-xs bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-md px-2 py-1 text-[var(--text-secondary)] focus:outline-hidden"
             onChange={(e) => {
@@ -173,6 +218,7 @@ export function VideoPlayer() {
             <option value="2">2.0x</option>
           </select>
 
+          {/* Fullscreen Button */}
           <Button
             variant="ghost"
             size="icon"

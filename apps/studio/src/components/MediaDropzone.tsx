@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { UploadCloud, Info, Sparkles, CheckCircle2 } from 'lucide-react';
 import { Button, Card, CardHeader, CardTitle, formatSecondsToTimecode } from '@vid-edi/ui';
-import { inspectBrowserVideoFile } from '@vid-edi/media-processing';
+import { inspectBrowserVideoFile, isWebCodecsSupported } from '@vid-edi/media-processing';
 import { useTimelineStore } from '@vid-edi/editor-engine';
 import type { MediaSource } from '@vid-edi/shared-types';
 
@@ -27,7 +27,7 @@ export function MediaDropzone() {
       const fallback: MediaSource = {
         id: `source_${Date.now()}`,
         name: file.name,
-        path: file.name,
+        path: URL.createObjectURL(file),
         size: file.size,
         duration: 30, // default 30s
         width: 1920,
@@ -46,11 +46,11 @@ export function MediaDropzone() {
 
   const loadDemoMedia = () => {
     const demoSource: MediaSource = {
-      id: 'demo_spoken_interview_01',
-      name: 'tech_podcast_interview_sample.mp4',
-      path: '/demo_video.mp4',
-      size: 42 * 1024 * 1024,
-      duration: 74.5,
+      id: 'demo_tech_interview_sample',
+      name: 'tech_founder_interview_sample.mp4',
+      path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      size: 15 * 1024 * 1024,
+      duration: 15,
       width: 1920,
       height: 1080,
       fps: 30,
@@ -167,6 +167,14 @@ export function MediaDropzone() {
                 {activeSource.audioChannels}ch @ {activeSource.audioSampleRate / 1000}kHz
               </span>
             </div>
+          </div>
+
+          <div className="mt-3 pt-2.5 border-t border-[var(--border-subtle)] flex items-center justify-between text-[11px]">
+            <span className="text-[var(--text-tertiary)]">Playback Engine</span>
+            <span className="font-mono text-[var(--text-secondary)] flex items-center gap-1.5 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              {isWebCodecsSupported() ? 'WebCodecs HW Accel' : 'HTML5 Standard'}
+            </span>
           </div>
         </Card>
       )}
