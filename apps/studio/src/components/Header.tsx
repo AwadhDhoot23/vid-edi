@@ -1,8 +1,12 @@
-import { Sparkles, Download, Undo, Redo, Scissors, Film } from 'lucide-react';
+import { Sparkles, Download, Undo, Redo, Scissors, Film, ArrowLeft } from 'lucide-react';
 import { Button, ThemeToggle, Badge } from '@vid-edi/ui';
 import { useTimelineStore } from '@vid-edi/editor-engine';
 
-export function Header() {
+interface HeaderProps {
+  onGoHome?: () => void;
+}
+
+export function Header({ onGoHome }: HeaderProps) {
   const { undo, redo, past, future, splitSelectedClip, selectedClipId, activeSource } =
     useTimelineStore();
 
@@ -10,6 +14,18 @@ export function Header() {
     <header className="h-13 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 backdrop-blur-md px-4 flex items-center justify-between z-20 shrink-0">
       {/* Brand & Project Info */}
       <div className="flex items-center gap-3">
+        {onGoHome && (
+          <button
+            type="button"
+            onClick={onGoHome}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer shadow-2xs mr-1"
+            title="Return to Home Cover Page"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Home</span>
+          </button>
+        )}
+
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[var(--accent-coral)]/15 border border-[var(--accent-coral)]/30 text-[var(--accent-coral)]">
           <Film className="w-4 h-4" />
         </div>

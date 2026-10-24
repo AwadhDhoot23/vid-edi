@@ -3,14 +3,16 @@
 
 /* App styling */
 html, body, #root {
-  height: 100%;
+  min-height: 100%;
   width: 100%;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
 }
 
-/* Custom scrollbars matching theme */
+/* Custom scrollbars matching Apple aesthetic */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -22,7 +24,7 @@ html, body, #root {
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border-radius: 3px;
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
