@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react';
-import { Volume2, VolumeX, Lock, Unlock, Scissors, Trash2 } from 'lucide-react';
+import { useRef, useState, useEffect } from 'react';
+import { Volume2, VolumeX, Lock, Unlock, Scissors, Trash2, Undo2, Redo2 } from 'lucide-react';
 import { useTimelineStore } from '@vid-edi/editor-engine';
 import { Button, formatSecondsToTimecode } from '@vid-edi/ui';
-import type { Track } from '@vid-edi/shared-types';
+import type { Track, Clip } from '@vid-edi/shared-types';
 
 export function TimelineView() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -15,17 +15,98 @@ export function TimelineView() {
     setSelectedClipId,
     splitSelectedClip,
     removeClip,
+    trimClip,
+    undo,
+    redo,
+    isPlaying,
+    setIsPlaying,
+    past,
+    future,
   } = useTimelineStore();
 
   const totalDuration = Math.max(timeline.duration, 10);
   const basePixelsPerSecond = 20 * zoomLevel;
   const timelinePixelWidth = totalDuration * basePixelsPerSecond;
 
+  // Keyboard shortcuts (Space = play/pause, Delete = delete clip, S = split, Ctrl/Cmd+Z = undo/redo)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setIsPlaying(!isPlaying);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedClipId) {
+          e.preventDefault();
+          removeClip(selectedClipId);
+        }
+      } else if (e.key === 's' || e.key === 'S') {
+        if (selectedClipId) {
+          e.preventDefault();
+          splitSelectedClip();
+        }
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPlaying, selectedClipId, setIsPlaying, removeClip, splitSelectedClip, undo, redo]);
+
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickedSeconds = clickX / basePixelsPerSecond;
     setCurrentTime(Math.max(0, Math.min(clickedSeconds, totalDuration)));
+  };
+
+  const handleTrimStart = (
+    e: React.MouseEvent,
+    clip: Clip,
+    type: 'start' | 'end'
+  ) => {
+    e.stopPropagation();
+    const initialClientX = e.clientX;
+    const initialSourceStart = clip.sourceStart;
+    const initialSourceEnd = clip.sourceEnd;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaPx = moveEvent.clientX - initialClientX;
+      const deltaSec = deltaPx / basePixelsPerSecond;
+
+      if (type === 'start') {
+        const newStart = Math.max(
+          0,
+          Math.min(initialSourceStart + deltaSec, initialSourceEnd - 0.5)
+        );
+        trimClip(clip.id, newStart, initialSourceEnd);
+      } else {
+        const newEnd = Math.max(initialSourceStart + 0.5, initialSourceEnd + deltaSec);
+        trimClip(clip.id, initialSourceStart, newEnd);
+      }
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
   };
 
   const getTrackColorClasses = (type: Track['type']) => {
@@ -65,6 +146,30 @@ export function TimelineView() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* History Undo / Redo controls */}
+          <div className="flex items-center gap-1 mr-2 border-r border-[var(--border-subtle)] pr-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={undo}
+              disabled={past.length === 0}
+              className="h-7 w-7 p-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 cursor-pointer"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={redo}
+              disabled={future.length === 0}
+              className="h-7 w-7 p-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 cursor-pointer"
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+
           {selectedClipId && (
             <div className="flex items-center gap-1 mr-2">
               <Button
@@ -197,7 +302,7 @@ export function TimelineView() {
                         e.stopPropagation();
                         setSelectedClipId(clip.id);
                       }}
-                      className={`absolute top-1 bottom-1 rounded-md border text-xs px-2 flex items-center justify-between cursor-pointer shadow-xs transition-all duration-100 ${getTrackColorClasses(
+                      className={`group absolute top-1 bottom-1 rounded-md border text-xs px-2 flex items-center justify-between cursor-pointer shadow-xs transition-all duration-100 select-none ${getTrackColorClasses(
                         track.type
                       )} ${
                         isSelected
@@ -206,15 +311,37 @@ export function TimelineView() {
                       }`}
                       style={{
                         left: `${clipLeft}px`,
-                        width: `${Math.max(clipWidth, 12)}px`,
+                        width: `${Math.max(clipWidth, 16)}px`,
                       }}
                     >
-                      <span className="font-medium truncate text-[11px] pointer-events-none">
+                      {/* Left Trim Handle */}
+                      {isSelected && (
+                        <div
+                          className="absolute left-0 top-0 bottom-0 w-2.5 bg-black/40 hover:bg-[var(--accent-primary)] cursor-col-resize rounded-l-md flex items-center justify-center z-30 transition-colors"
+                          title="Drag to trim start"
+                          onMouseDown={(e) => handleTrimStart(e, clip, 'start')}
+                        >
+                          <div className="w-0.5 h-3 bg-white/80 rounded-full" />
+                        </div>
+                      )}
+
+                      <span className="font-medium truncate text-[11px] pointer-events-none px-1">
                         {clip.id}
                       </span>
-                      <span className="font-mono text-[9px] opacity-75 truncate pointer-events-none">
+                      <span className="font-mono text-[9px] opacity-75 truncate pointer-events-none px-1">
                         {clip.timelineDuration.toFixed(1)}s
                       </span>
+
+                      {/* Right Trim Handle */}
+                      {isSelected && (
+                        <div
+                          className="absolute right-0 top-0 bottom-0 w-2.5 bg-black/40 hover:bg-[var(--accent-primary)] cursor-col-resize rounded-r-md flex items-center justify-center z-30 transition-colors"
+                          title="Drag to trim end"
+                          onMouseDown={(e) => handleTrimStart(e, clip, 'end')}
+                        >
+                          <div className="w-0.5 h-3 bg-white/80 rounded-full" />
+                        </div>
+                      )}
                     </div>
                   );
                 })}

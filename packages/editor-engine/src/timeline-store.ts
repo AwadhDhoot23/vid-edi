@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import type { Timeline, Track, Clip, EditOperation, MediaSource } from '@vid-edi/shared-types';
-import { createDefaultTimeline, recalculateTimelineDuration, splitClipAtTimestamp } from './timeline-ops';
+import {
+  createDefaultTimeline,
+  recalculateTimelineDuration,
+  splitClipAtTimestamp,
+  trimClipBoundary,
+} from './timeline-ops';
 
 export interface TimelineStoreState {
   timeline: Timeline;
@@ -19,6 +24,7 @@ export interface TimelineStoreState {
   setSelectedClipId: (id: string | null) => void;
   splitSelectedClip: () => void;
   removeClip: (clipId: string) => void;
+  trimClip: (clipId: string, newStart: number, newEnd: number) => void;
   undo: () => void;
   redo: () => void;
   resetTimeline: () => void;
@@ -146,6 +152,42 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
       timeline: updatedTimeline,
       future: [],
       selectedClipId: null,
+    });
+  },
+
+  trimClip: (clipId: string, newStart: number, newEnd: number) => {
+    const { timeline, past } = get();
+    if (newStart >= newEnd || newStart < 0) return;
+
+    let modified = false;
+    const updatedTracks = timeline.tracks.map((track) => {
+      const clipIndex = track.clips.findIndex((c) => c.id === clipId);
+      if (clipIndex === -1) return track;
+
+      const clip = track.clips[clipIndex];
+      if (!clip) return track;
+
+      const trimmed = trimClipBoundary(clip, newStart, newEnd);
+      if (!trimmed) return track;
+
+      modified = true;
+      const updatedClips = [...track.clips];
+      updatedClips[clipIndex] = trimmed;
+      return { ...track, clips: updatedClips };
+    });
+
+    if (!modified) return;
+
+    const updatedTimeline: Timeline = {
+      ...timeline,
+      tracks: updatedTracks,
+      duration: recalculateTimelineDuration(updatedTracks),
+    };
+
+    set({
+      past: [...past, timeline],
+      timeline: updatedTimeline,
+      future: [],
     });
   },
 
