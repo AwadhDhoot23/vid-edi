@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   AlignLeft,
   Download,
@@ -12,6 +12,7 @@ import {
   useTimelineStore,
   getActiveClipAtTime,
   getTimelineTimeFromSourceTime,
+  DEFAULT_SAMPLE_TRANSCRIPT,
 } from '@vid-edi/editor-engine';
 import { Button, formatSecondsToTimecode } from '@vid-edi/ui';
 import {
@@ -29,39 +30,18 @@ const DEFAULT_GROQ_KEY =
   envGroq ||
   (typeof window !== 'undefined' ? localStorage.getItem('videdi_groq_api_key') || '' : '');
 
-const INITIAL_TRANSCRIPT: TranscriptWord[] = [
-  { text: 'Welcome', start: 0.2, end: 0.6, confidence: 0.99 },
-  { text: 'back', start: 0.7, end: 0.9, confidence: 0.98 },
-  { text: 'to', start: 1.0, end: 1.1, confidence: 0.99 },
-  { text: 'the', start: 1.2, end: 1.3, confidence: 0.99 },
-  { text: 'channel.', start: 1.4, end: 1.9, confidence: 0.97 },
-  { text: 'Today', start: 2.2, end: 2.6, confidence: 0.98 },
-  { text: "we're", start: 2.7, end: 2.9, confidence: 0.96 },
-  { text: 'diving', start: 3.0, end: 3.4, confidence: 0.98 },
-  { text: 'deep', start: 3.5, end: 3.8, confidence: 0.97 },
-  { text: 'into', start: 3.9, end: 4.1, confidence: 0.99 },
-  { text: 'how', start: 4.2, end: 4.4, confidence: 0.99 },
-  { text: 'open-source', start: 4.5, end: 5.1, confidence: 0.95 },
-  { text: 'video', start: 5.2, end: 5.5, confidence: 0.98 },
-  { text: 'editing', start: 5.6, end: 6.0, confidence: 0.97 },
-  { text: 'can', start: 6.1, end: 6.3, confidence: 0.99 },
-  { text: 'be', start: 6.4, end: 6.5, confidence: 0.99 },
-  { text: 'revolutionized', start: 6.6, end: 7.4, confidence: 0.94 },
-  { text: 'using', start: 7.5, end: 7.8, confidence: 0.98 },
-  { text: 'transparent', start: 7.9, end: 8.5, confidence: 0.96 },
-  { text: 'AI', start: 8.6, end: 8.8, confidence: 0.99 },
-  { text: 'planners.', start: 8.9, end: 9.4, confidence: 0.98 },
-  { text: 'So...', start: 12.1, end: 12.5, confidence: 0.92 },
-  { text: 'first', start: 12.6, end: 13.0, confidence: 0.97 },
-  { text: 'off,', start: 13.1, end: 13.5, confidence: 0.96 },
-  { text: 'let', start: 13.9, end: 14.2, confidence: 0.99 },
-  { text: 'us', start: 14.3, end: 14.5, confidence: 0.99 },
-  { text: 'inspect', start: 14.6, end: 14.9, confidence: 0.98 },
-];
-
 export function TranscriptPanel() {
-  const { currentTime, setCurrentTime, activeSource, setTranscriptWords, timeline } = useTimelineStore();
-  const [words, setWords] = useState<TranscriptWord[]>(INITIAL_TRANSCRIPT);
+  const {
+    currentTime,
+    setCurrentTime,
+    activeSource,
+    transcriptWords,
+    setTranscriptWords,
+    timeline,
+  } = useTimelineStore();
+
+  const words: TranscriptWord[] =
+    transcriptWords && transcriptWords.length > 0 ? transcriptWords : DEFAULT_SAMPLE_TRANSCRIPT;
   const [searchQuery, setSearchQuery] = useState('');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -70,21 +50,25 @@ export function TranscriptPanel() {
   const [transcribeStatus, setTranscribeStatus] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const lastSourceIdRef = useRef<string | null>(null);
+
   // Derive source media playback time from current timeline time
   const activeClipInfo = getActiveClipAtTime(timeline.tracks, currentTime);
   const currentSourceTime = activeClipInfo?.sourceTime ?? null;
 
-  // Sync words into shared store for AI Planner pause detection
-  useEffect(() => {
-    setTranscriptWords(words);
-  }, [words, setTranscriptWords]);
-
-  // Adapt words when new media source is loaded
+  // Adapt words when new media source is loaded, never overwriting existing user/whisper transcripts
   useEffect(() => {
     if (!activeSource) return;
+    if (lastSourceIdRef.current === activeSource.id) return;
+    lastSourceIdRef.current = activeSource.id;
+
+    // If user already generated words or loaded a transcript, preserve it!
+    if (transcriptWords.length > 0 && transcriptWords !== DEFAULT_SAMPLE_TRANSCRIPT) {
+      return;
+    }
 
     // If activeSource is loaded and duration differs significantly from sample
-    if (activeSource.id !== 'demo_tech_interview_sample' && activeSource.duration > 25) {
+    if (activeSource.id !== 'demo_tech_interview_sample' && activeSource.duration > 25 && transcriptWords.length === 0) {
       // Scale default spoken word sequence across the actual duration of the loaded file
       const totalWords = Math.floor(activeSource.duration * 2.2);
       const generatedWords: TranscriptWord[] = [];
@@ -136,9 +120,9 @@ export function TranscriptPanel() {
         });
         t += dur + (i % 7 === 0 ? 0.8 : 0.1);
       }
-      setWords(generatedWords);
+      setTranscriptWords(generatedWords);
     }
-  }, [activeSource]);
+  }, [activeSource, transcriptWords, setTranscriptWords]);
 
   // Segments for subtitle generation
   const segments = useMemo(() => wordsToSegments(words, 6), [words]);
@@ -168,7 +152,7 @@ export function TranscriptPanel() {
       const realWords = await transcribeWithGroqWhisper(wavBlob, DEFAULT_GROQ_KEY);
 
       if (realWords.length > 0) {
-        setWords(realWords);
+        setTranscriptWords(realWords);
         setTranscribeStatus(null);
       } else {
         throw new Error('No words detected in audio stream.');
@@ -190,14 +174,12 @@ export function TranscriptPanel() {
 
   const handleSaveEdit = (idx: number) => {
     if (editingValue.trim() && idx < words.length) {
-      setWords((prev) => {
-        const next = [...prev];
-        const existing = next[idx];
-        if (existing) {
-          next[idx] = { ...existing, text: editingValue.trim() };
-        }
-        return next;
-      });
+      const next = [...words];
+      const existing = next[idx];
+      if (existing) {
+        next[idx] = { ...existing, text: editingValue.trim() };
+        setTranscriptWords(next);
+      }
     }
     setEditingIndex(null);
   };

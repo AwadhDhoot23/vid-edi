@@ -64,13 +64,43 @@ export interface TimelineStoreState {
   resetTimeline: () => void;
 }
 
+export const DEFAULT_SAMPLE_TRANSCRIPT: TranscriptWord[] = [
+  { text: 'Welcome', start: 0.2, end: 0.6, confidence: 0.99 },
+  { text: 'back', start: 0.7, end: 0.9, confidence: 0.98 },
+  { text: 'to', start: 1.0, end: 1.1, confidence: 0.99 },
+  { text: 'the', start: 1.2, end: 1.3, confidence: 0.99 },
+  { text: 'channel.', start: 1.4, end: 1.9, confidence: 0.97 },
+  { text: 'Today', start: 2.2, end: 2.6, confidence: 0.98 },
+  { text: "we're", start: 2.7, end: 2.9, confidence: 0.96 },
+  { text: 'diving', start: 3.0, end: 3.4, confidence: 0.98 },
+  { text: 'deep', start: 3.5, end: 3.8, confidence: 0.97 },
+  { text: 'into', start: 3.9, end: 4.1, confidence: 0.99 },
+  { text: 'how', start: 4.2, end: 4.4, confidence: 0.99 },
+  { text: 'open-source', start: 4.5, end: 5.1, confidence: 0.95 },
+  { text: 'video', start: 5.2, end: 5.5, confidence: 0.98 },
+  { text: 'editing', start: 5.6, end: 6.0, confidence: 0.97 },
+  { text: 'can', start: 6.1, end: 6.3, confidence: 0.99 },
+  { text: 'be', start: 6.4, end: 6.5, confidence: 0.99 },
+  { text: 'revolutionized', start: 6.6, end: 7.4, confidence: 0.94 },
+  { text: 'using', start: 7.5, end: 7.8, confidence: 0.98 },
+  { text: 'transparent', start: 7.9, end: 8.5, confidence: 0.96 },
+  { text: 'AI', start: 8.6, end: 8.8, confidence: 0.99 },
+  { text: 'planners.', start: 8.9, end: 9.4, confidence: 0.98 },
+  { text: 'So...', start: 12.1, end: 12.5, confidence: 0.92 },
+  { text: 'first', start: 12.6, end: 13.0, confidence: 0.97 },
+  { text: 'off,', start: 13.1, end: 13.5, confidence: 0.96 },
+  { text: 'let', start: 13.9, end: 14.2, confidence: 0.99 },
+  { text: 'us', start: 14.3, end: 14.5, confidence: 0.99 },
+  { text: 'inspect', start: 14.6, end: 14.9, confidence: 0.98 },
+];
+
 export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
   timeline: createDefaultTimeline(),
   activeSource: null,
   currentTime: 0,
   isPlaying: false,
   selectedClipId: null,
-  transcriptWords: [],
+  transcriptWords: DEFAULT_SAMPLE_TRANSCRIPT,
   history: [],
   past: [],
   future: [],
@@ -119,12 +149,21 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
     const hasAsset = currentAssets.some((a) => a.id === source.id);
     const updatedAssets = hasAsset ? currentAssets : [initialAsset, ...currentAssets];
 
+    const isSample = source.id === 'demo_tech_interview_sample';
+    const currentWords = get().transcriptWords;
+    const wordsForSource = isSample
+      ? DEFAULT_SAMPLE_TRANSCRIPT
+      : currentWords.length > 0 && currentWords !== DEFAULT_SAMPLE_TRANSCRIPT
+      ? currentWords
+      : [];
+
     set({
       activeSource: source,
       timeline: newTimeline,
       currentTime: 0,
       selectedClipId: mainClip.id,
       projectAssets: updatedAssets,
+      transcriptWords: wordsForSource,
       past: [],
       future: [],
     });

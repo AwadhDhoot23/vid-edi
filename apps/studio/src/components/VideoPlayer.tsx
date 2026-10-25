@@ -49,7 +49,6 @@ export function VideoPlayer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const currentPlayingClipIdRef = useRef<string | null>(null);
   const [volume, setVolume] = useState(1);
-  const [playbackRate, setPlaybackRate] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [showCaptions, setShowCaptions] = useState(true);
 
@@ -280,9 +279,8 @@ export function VideoPlayer() {
       const deltaSec = Math.min((now - lastTimestamp) / 1000, 0.1);
       lastTimestamp = now;
 
-      const globalRate = playbackRate;
       const currentTlTime = useTimelineStore.getState().currentTime;
-      const nextTlTime = currentTlTime + deltaSec * globalRate;
+      const nextTlTime = currentTlTime + deltaSec;
 
       if (nextTlTime >= timeline.duration) {
         setCurrentTime(timeline.duration);
@@ -296,13 +294,12 @@ export function VideoPlayer() {
 
       if (nextActiveInfo) {
         const clipRate = nextActiveInfo.clip.playbackRate || 1;
-        const effectiveRate = clipRate * globalRate;
         const clipChanged = nextActiveInfo.clip.id !== currentPlayingClipIdRef.current;
         currentPlayingClipIdRef.current = nextActiveInfo.clip.id;
 
         if (clipChanged) {
-          // Changed to next clip: update rate and sync time seamlessly without stopping playback
-          video.playbackRate = effectiveRate;
+          // Changed to next clip: update hardware playback rate and sync time seamlessly without stopping playback
+          video.playbackRate = clipRate;
           const drift = Math.abs(video.currentTime - nextActiveInfo.sourceTime);
           if (drift > 0.08) {
             video.currentTime = nextActiveInfo.sourceTime;
@@ -312,8 +309,8 @@ export function VideoPlayer() {
           }
         } else {
           // Continuing playback inside the current clip
-          if (Math.abs(video.playbackRate - effectiveRate) > 0.01) {
-            video.playbackRate = effectiveRate;
+          if (Math.abs(video.playbackRate - clipRate) > 0.01) {
+            video.playbackRate = clipRate;
           }
           const drift = Math.abs(video.currentTime - nextActiveInfo.sourceTime);
           if (drift > 0.4) {
@@ -339,7 +336,7 @@ export function VideoPlayer() {
 
     animationFrameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [isPlaying, timeline.tracks, timeline.duration, playbackRate, setCurrentTime, setIsPlaying]);
+  }, [isPlaying, timeline.tracks, timeline.duration, setCurrentTime, setIsPlaying]);
 
   const seekDelta = (seconds: number) => {
     const nextTime = Math.max(0, Math.min(currentTime + seconds, timeline.duration));
@@ -734,23 +731,7 @@ export function VideoPlayer() {
             CC
           </button>
 
-          {/* Speed Selector */}
-          <select
-            className="text-xs bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-md px-1.5 py-1 text-[var(--text-secondary)] focus:outline-hidden cursor-pointer"
-            value={playbackRate}
-            onChange={(e) => {
-              const newRate = parseFloat(e.target.value);
-              setPlaybackRate(newRate);
-              if (videoRef.current) {
-                videoRef.current.playbackRate = newRate;
-              }
-            }}
-          >
-            <option value="0.5">0.5x</option>
-            <option value="1">1.0x</option>
-            <option value="1.5">1.5x</option>
-            <option value="2.0">2.0x</option>
-          </select>
+
 
           {/* Fullscreen Button */}
           <Button

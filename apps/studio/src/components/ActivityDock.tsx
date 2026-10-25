@@ -463,11 +463,9 @@ export function ActivityDock() {
             )}
 
             {/* 2. TRANSCRIPT */}
-            {activeTab === 'transcript' && (
-              <div className="h-full flex flex-col">
-                <TranscriptPanel />
-              </div>
-            )}
+            <div className={activeTab === 'transcript' ? 'h-full flex flex-col' : 'hidden'}>
+              <TranscriptPanel />
+            </div>
 
             {/* 3. TEXT & TITLES */}
             {activeTab === 'text' && (
