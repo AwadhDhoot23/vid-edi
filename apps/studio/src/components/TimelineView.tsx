@@ -61,6 +61,7 @@ export function TimelineView() {
     trimClip,
     reorderClips,
     moveClip,
+    updateClipProperties,
     commitHistorySnapshot,
     activeSource,
     undo,
@@ -247,6 +248,35 @@ export function TimelineView() {
       if (type === 'start') {
         const tentativeTlStart = Math.max(0, initialTimelineStart + deltaSec);
         const snap = findSnapTarget(tentativeTlStart, clip.id);
+
+        if (isSyntheticClip) {
+          // Synthetic clips (Title Cards, Text Overlays): expand or shrink freely from the left!
+          const targetTlStart = snap ? snap.snappedSec : tentativeTlStart;
+          const maxAllowedStart = initialTimelineStart + initialTimelineDuration - 0.3;
+          const newTlStart = Math.max(0, Math.min(targetTlStart, maxAllowedStart));
+          const newDuration = Number(
+            (initialTimelineStart + initialTimelineDuration - newTlStart).toFixed(2)
+          );
+
+          if (snap) {
+            setSnapGuide({
+              timeSec: snap.snappedSec,
+              pixelX: snap.snappedSec * basePixelsPerSecond,
+              label: snap.guideLabel,
+            });
+          } else {
+            setSnapGuide(null);
+          }
+
+          updateClipProperties(clip.id, {
+            timelineStart: Number(newTlStart.toFixed(2)),
+            timelineDuration: newDuration,
+            sourceStart: 0,
+            sourceEnd: newDuration,
+          });
+          return;
+        }
+
         let newStart: number;
         const maxStart = initialSourceEnd - 0.3;
 
@@ -273,6 +303,29 @@ export function TimelineView() {
         // Dragging right handle: timelineStart stays STRICTLY fixed at initialTimelineStart!
         const tentativeTlEnd = initialTimelineStart + initialTimelineDuration + deltaSec;
         const snap = findSnapTarget(tentativeTlEnd, clip.id);
+
+        if (isSyntheticClip) {
+          const targetTlEnd = snap ? snap.snappedSec : tentativeTlEnd;
+          const newDur = Math.max(0.3, Number((targetTlEnd - initialTimelineStart).toFixed(2)));
+
+          if (snap) {
+            setSnapGuide({
+              timeSec: snap.snappedSec,
+              pixelX: snap.snappedSec * basePixelsPerSecond,
+              label: snap.guideLabel,
+            });
+          } else {
+            setSnapGuide(null);
+          }
+
+          updateClipProperties(clip.id, {
+            timelineDuration: newDur,
+            sourceStart: 0,
+            sourceEnd: newDur,
+          });
+          return;
+        }
+
         let newEnd: number;
         const maxSourceDuration = isSyntheticClip
           ? Infinity

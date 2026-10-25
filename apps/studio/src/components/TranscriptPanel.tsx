@@ -72,7 +72,7 @@ export function TranscriptPanel() {
 
   // Derive source media playback time from current timeline time
   const activeClipInfo = getActiveClipAtTime(timeline.tracks, currentTime);
-  const currentSourceTime = activeClipInfo?.sourceTime ?? currentTime;
+  const currentSourceTime = activeClipInfo?.sourceTime ?? null;
 
   // Sync words into shared store for AI Planner pause detection
   useEffect(() => {
@@ -283,8 +283,12 @@ export function TranscriptPanel() {
             {words.map((w, idx) => {
               const wordTimelineTime = getTimelineTimeFromSourceTime(timeline.tracks, w.start);
               const isCut = wordTimelineTime === null;
-              const isActive = !isCut && currentSourceTime >= w.start && currentSourceTime <= w.end;
-              const isPast = isCut || currentSourceTime > w.end;
+              const isActive =
+                !isCut &&
+                currentSourceTime !== null &&
+                currentSourceTime >= w.start &&
+                currentSourceTime <= w.end;
+              const isPast = isCut || (currentSourceTime !== null && currentSourceTime > w.end);
               const matchesSearch =
                 searchQuery && w.text.toLowerCase().includes(searchQuery.toLowerCase());
 

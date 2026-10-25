@@ -70,15 +70,18 @@ export function VideoPlayer() {
   const activeClipInfo = getActiveClipAtTime(timeline.tracks, currentTime);
 
   // Dynamic Kinetic Subtitles Calculation (Task 5.11)
-  const currentSourceTime = activeClipInfo?.sourceTime ?? currentTime;
-  const activeWordIndex = transcriptWords.findIndex(
-    (w) => currentSourceTime >= w.start && currentSourceTime <= w.end
-  );
+  const currentSourceTime = activeClipInfo?.sourceTime;
+  const activeWordIndex =
+    activeClipInfo && currentSourceTime !== undefined
+      ? transcriptWords.findIndex(
+          (w) => currentSourceTime >= w.start && currentSourceTime <= w.end
+        )
+      : -1;
   const activeWord = activeWordIndex !== -1 ? transcriptWords[activeWordIndex] : null;
 
   // 3-word bite-sized window around current word
   const subtitleSnippet =
-    activeWordIndex !== -1
+    activeClipInfo && activeWord && activeWordIndex !== -1
       ? transcriptWords.slice(
           Math.max(0, activeWordIndex - 1),
           Math.min(transcriptWords.length, activeWordIndex + 2)
@@ -279,10 +282,7 @@ export function VideoPlayer() {
 
       const globalRate = playbackRate;
       const currentTlTime = useTimelineStore.getState().currentTime;
-      const activeInfo = getActiveClipAtTime(timeline.tracks, currentTlTime);
-
-      const activeRate = (activeInfo?.clip.playbackRate || 1) * globalRate;
-      const nextTlTime = currentTlTime + deltaSec * activeRate;
+      const nextTlTime = currentTlTime + deltaSec * globalRate;
 
       if (nextTlTime >= timeline.duration) {
         setCurrentTime(timeline.duration);
@@ -316,7 +316,7 @@ export function VideoPlayer() {
             video.playbackRate = effectiveRate;
           }
           const drift = Math.abs(video.currentTime - nextActiveInfo.sourceTime);
-          if (drift > 0.25) {
+          if (drift > 0.4) {
             video.currentTime = nextActiveInfo.sourceTime;
           }
           if (video.paused) {
@@ -540,7 +540,7 @@ export function VideoPlayer() {
             })}
 
             {/* Dynamic Kinetic Subtitles Overlay (Task 5.11) */}
-            {showCaptions && subtitleSnippet.length > 0 ? (
+            {showCaptions && activeClipInfo && subtitleSnippet.length > 0 ? (
               <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none px-4 z-25">
                 <div className="bg-black/70 backdrop-blur-xs px-3.5 py-1.5 rounded-lg border border-white/10 shadow-lg flex items-center gap-1.5 text-xs sm:text-sm font-semibold tracking-normal transition-all duration-75">
                   {subtitleSnippet.map((w, idx) => {

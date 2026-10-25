@@ -693,6 +693,10 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
     let isIntroTitleCard = false;
     let durationDelta = 0;
     let oldTitleEnd = 0;
+    let speedChangedClipId: string | null = null;
+    let speedDelta = 0;
+    let oldClipEnd = 0;
+    let targetTrackId: string | null = null;
 
     for (const track of timeline.tracks) {
       const foundClip = track.clips.find((c) => c.id === clipId);
@@ -706,6 +710,18 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
           isIntroTitleCard = true;
           oldTitleEnd = foundClip.timelineStart + foundClip.timelineDuration;
           durationDelta = updates.timelineDuration - foundClip.timelineDuration;
+        }
+
+        if (
+          updates.playbackRate !== undefined &&
+          updates.playbackRate > 0 &&
+          updates.playbackRate !== foundClip.playbackRate
+        ) {
+          const newDur = (foundClip.sourceEnd - foundClip.sourceStart) / updates.playbackRate;
+          speedChangedClipId = clipId;
+          speedDelta = newDur - foundClip.timelineDuration;
+          oldClipEnd = foundClip.timelineStart + foundClip.timelineDuration;
+          targetTrackId = track.id;
         }
         break;
       }
@@ -750,6 +766,14 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
           return {
             ...clip,
             timelineStart: Math.max(0, Number((clip.timelineStart + durationDelta).toFixed(3))),
+          };
+        }
+
+        // If a clip's playback speed changed, shift downstream clips on the same track so they don't overlap or leave artificial gaps!
+        if (speedChangedClipId && track.id === targetTrackId && clip.timelineStart >= oldClipEnd - 0.1) {
+          return {
+            ...clip,
+            timelineStart: Math.max(0, Number((clip.timelineStart + speedDelta).toFixed(3))),
           };
         }
 
