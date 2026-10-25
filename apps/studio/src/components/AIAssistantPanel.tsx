@@ -33,13 +33,16 @@ export function AIAssistantPanel() {
     undo,
     past,
     setAspectRatio,
+    timeline,
   } = useTimelineStore();
 
   const samplePrompts = [
-    'Remove long pauses (>1.5s)',
-    'Tighten intro section',
-    'Find 3 viral shorts',
-    'Generate styled subtitles',
+    '✂️ Remove long pauses (>1.4s)',
+    '🎬 Tighten intro dead-air',
+    '⚡ Speed up clip to 1.5x',
+    '🎨 Apply Teal & Orange filter',
+    '🏷️ Add Intro Title Card (EPISODE 1)',
+    '📱 Convert to 9:16 Viral Short',
   ];
 
   const handlePropose = async (instruction: string) => {
@@ -49,9 +52,11 @@ export function AIAssistantPanel() {
     }
 
     setIsAnalyzing(true);
-    const lower = instruction.toLowerCase();
+    const lower = instruction.toLowerCase().trim();
     const duration = activeSource.duration || 15;
-    const groqApiKey = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_GROQ_API_KEY;
+    const groqApiKey =
+      (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_GROQ_API_KEY ||
+      (typeof window !== 'undefined' ? localStorage.getItem('videdi_groq_api_key') || '' : '');
 
     let rawOps: EditOperation[] = [];
 
@@ -74,12 +79,12 @@ export function AIAssistantPanel() {
       }
     }
 
-    // Deterministic rules fallback
+    // High-precision deterministic creator NLP parser fallback
     if (rawOps.length === 0) {
-      if (lower.includes('pause') || lower.includes('silence')) {
+      if (lower.includes('pause') || lower.includes('silence') || lower.includes('dead air')) {
         const detectedPauses: EditOperation[] = [];
 
-        // Dynamic pause detection directly from transcript word timestamps!
+        // Dynamic pause detection directly from transcript word timestamps
         if (transcriptWords && transcriptWords.length > 1) {
           for (let i = 0; i < transcriptWords.length - 1; i++) {
             const currentWord = transcriptWords[i];
@@ -87,7 +92,7 @@ export function AIAssistantPanel() {
             if (!currentWord || !nextWord) continue;
 
             const gapDuration = nextWord.start - currentWord.end;
-            if (gapDuration >= 1.4) {
+            if (gapDuration >= 1.2) {
               const pStart = Number((currentWord.end + 0.15).toFixed(2));
               const pEnd = Number((nextWord.start - 0.15).toFixed(2));
 
@@ -98,8 +103,8 @@ export function AIAssistantPanel() {
                   target: { clipId: 'clip_main', trackId: 'track_video_main' },
                   sourceRange: { start: pStart, end: pEnd },
                   params: { paddingMs: 150 },
-                  reason: `${gapDuration.toFixed(1)}s silence between "${currentWord.text}" and "${nextWord.text}" — trimmed with 150ms speech padding.`,
-                  confidence: 0.95,
+                  reason: `${gapDuration.toFixed(1)}s dead-air between "${currentWord.text}" and "${nextWord.text}" — trimmed with 150ms speech padding.`,
+                  confidence: 0.96,
                   status: 'proposed',
                 });
               }
@@ -110,7 +115,7 @@ export function AIAssistantPanel() {
         if (detectedPauses.length > 0) {
           rawOps = detectedPauses;
         } else {
-          // Graceful fallback for videos without long pauses
+          // Graceful fallback for sample clip
           const p1Start = Number((duration * 0.35).toFixed(1));
           const p1End = Number(Math.min(duration - 0.5, p1Start + 1.8).toFixed(1));
           rawOps = [
@@ -126,7 +131,7 @@ export function AIAssistantPanel() {
             },
           ];
         }
-      } else if (lower.includes('intro') || lower.includes('tighten')) {
+      } else if (lower.includes('intro') || lower.includes('tighten') || lower.includes('start delay')) {
         let introCutEnd = 2.0;
         let firstWordText = '';
 
@@ -145,12 +150,137 @@ export function AIAssistantPanel() {
             target: { clipId: 'clip_main', trackId: 'track_video_main' },
             sourceRange: { start: 0, end: introCutEnd },
             params: { paddingMs: 100 },
-            reason: `Tighten video opening: cut ${introCutEnd.toFixed(1)}s initial dead-air${firstWordText}.`,
+            reason: `Tighten video opening: cut ${introCutEnd.toFixed(1)}s initial dead-air${firstWordText} for instantaneous hook.`,
             confidence: 0.97,
             status: 'proposed',
           },
         ];
-      } else if (lower.includes('short') || lower.includes('viral') || lower.includes('9:16')) {
+      } else if (
+        lower.includes('speed') ||
+        lower.includes('playback') ||
+        lower.includes('faster') ||
+        lower.includes('slow') ||
+        /\b(?:0\.5|1\.5|2(?:\.0)?)x\b/.test(lower)
+      ) {
+        let targetRate = 1.5;
+        if (lower.includes('0.5') || lower.includes('slow')) targetRate = 0.5;
+        else if (lower.includes('2') || lower.includes('double')) targetRate = 2.0;
+        else if (lower.includes('1.5')) targetRate = 1.5;
+        else if (lower.includes('1') || lower.includes('normal')) targetRate = 1.0;
+
+        const mainClip = timeline.tracks.find((t) => t.type === 'video')?.clips[0];
+        const clipDur = mainClip?.timelineDuration || duration;
+        const newDur = clipDur / targetRate;
+
+        rawOps = [
+          {
+            id: `op_speed_${Date.now()}`,
+            type: 'setPlaybackRate',
+            target: { clipId: mainClip?.id || 'clip_main', trackId: 'track_video_main' },
+            params: { playbackRate: targetRate },
+            reason: `Speed up clip to ${targetRate}x: timeline duration will scale from ${clipDur.toFixed(1)}s to ${newDur.toFixed(1)}s with automatic downstream ripple.`,
+            confidence: 0.98,
+            status: 'proposed',
+          },
+        ];
+      } else if (
+        lower.includes('filter') ||
+        lower.includes('grade') ||
+        lower.includes('teal') ||
+        lower.includes('vintage') ||
+        lower.includes('warm') ||
+        lower.includes('noir') ||
+        lower.includes('cyberpunk') ||
+        lower.includes('clean') ||
+        lower.includes('kodak') ||
+        lower.includes('bleach') ||
+        lower.includes('cinematic') ||
+        lower.includes('color')
+      ) {
+        let filterName = 'teal-orange';
+        let filterLabel = 'Teal & Orange';
+        if (lower.includes('vintage') || lower.includes('warm')) {
+          filterName = 'warm-vintage';
+          filterLabel = 'Warm Vintage';
+        } else if (
+          lower.includes('noir') ||
+          lower.includes('black and white') ||
+          lower.includes('b&w') ||
+          lower.includes('grayscale')
+        ) {
+          filterName = 'noir-bw';
+          filterLabel = 'Noir B&W';
+        } else if (lower.includes('cyberpunk') || lower.includes('neon')) {
+          filterName = 'cyberpunk';
+          filterLabel = 'Cyberpunk Neon';
+        } else if (lower.includes('clean') || lower.includes('pop')) {
+          filterName = 'clean-pop';
+          filterLabel = 'Clean Pop';
+        } else if (lower.includes('kodak') || lower.includes('35mm')) {
+          filterName = 'kodak-35mm';
+          filterLabel = 'Kodak 35mm';
+        } else if (lower.includes('bleach')) {
+          filterName = 'bleach-bypass';
+          filterLabel = 'Bleach Bypass';
+        } else if (lower.includes('slate') || lower.includes('cool')) {
+          filterName = 'cool-slate';
+          filterLabel = 'Cool Slate';
+        }
+
+        const mainClip = timeline.tracks.find((t) => t.type === 'video')?.clips[0];
+        rawOps = [
+          {
+            id: `op_filter_${Date.now()}`,
+            type: 'applyFilter',
+            target: { clipId: mainClip?.id || 'clip_main', trackId: 'track_video_main' },
+            params: { filterName },
+            reason: `Apply cinematic ${filterLabel} color grading preset to footage.`,
+            confidence: 0.97,
+            status: 'proposed',
+          },
+        ];
+      } else if (lower.includes('title') || lower.includes('card') || lower.includes('chapter')) {
+        const isOutro = lower.includes('outro') || lower.includes('end');
+        let cardTitle = 'EPISODE 1';
+        let cardSub = 'The Journey Begins Here';
+
+        if (lower.includes('chapter 1') || lower.includes('chapter one')) {
+          cardTitle = 'CHAPTER 1';
+          cardSub = 'Introduction & Overview';
+        } else if (lower.includes('key insight') || lower.includes('insight')) {
+          cardTitle = 'KEY INSIGHT';
+          cardSub = 'Why Video Editors Win in 2026';
+        }
+
+        rawOps = [
+          {
+            id: `op_title_${Date.now()}`,
+            type: 'addOverlay',
+            target: { clipId: 'clip_title', trackId: 'track_overlay' },
+            params: {
+              titleCard: {
+                title: cardTitle,
+                subtitle: cardSub,
+                theme: 'onyx',
+                backgroundColor: '#0A0A0A',
+                textColor: '#FFFFFF',
+              },
+              intro: !isOutro,
+              position: isOutro ? 'end' : 'start',
+              duration: 3.5,
+            },
+            reason: `Insert full-frame 3.5s ${isOutro ? 'Outro' : 'Intro'} Title Card "${cardTitle}" (video clips will automatically shift to preserve full footage).`,
+            confidence: 0.96,
+            status: 'proposed',
+          },
+        ];
+      } else if (
+        lower.includes('short') ||
+        lower.includes('viral') ||
+        lower.includes('9:16') ||
+        lower.includes('reel') ||
+        lower.includes('tiktok')
+      ) {
         rawOps = [
           {
             id: `op_aspect_${Date.now()}`,
@@ -162,6 +292,48 @@ export function AIAssistantPanel() {
             status: 'proposed',
           },
         ];
+      } else if (lower.includes('square') || lower.includes('1:1')) {
+        rawOps = [
+          {
+            id: `op_aspect_${Date.now()}`,
+            type: 'setAspectRatio',
+            target: { clipId: 'timeline', trackId: 'timeline' },
+            params: { aspectRatio: '1:1' },
+            reason: 'Switch timeline project canvas to 1:1 Square (1080x1080) for feed posts.',
+            confidence: 0.99,
+            status: 'proposed',
+          },
+        ];
+      } else if (lower.includes('landscape') || lower.includes('16:9') || lower.includes('youtube')) {
+        rawOps = [
+          {
+            id: `op_aspect_${Date.now()}`,
+            type: 'setAspectRatio',
+            target: { clipId: 'timeline', trackId: 'timeline' },
+            params: { aspectRatio: '16:9' },
+            reason: 'Switch timeline project canvas to 16:9 Landscape (1920x1080) for YouTube video.',
+            confidence: 0.99,
+            status: 'proposed',
+          },
+        ];
+      } else if (lower.includes('volume') || lower.includes('mute') || lower.includes('sound')) {
+        let vol = 0.8;
+        if (lower.includes('mute') || lower.includes('silent')) vol = 0;
+        else if (lower.includes('max') || lower.includes('100%')) vol = 1.0;
+        else if (lower.includes('half') || lower.includes('50%')) vol = 0.5;
+
+        const mainClip = timeline.tracks.find((t) => t.type === 'video')?.clips[0];
+        rawOps = [
+          {
+            id: `op_volume_${Date.now()}`,
+            type: 'adjustVolume',
+            target: { clipId: mainClip?.id || 'clip_main', trackId: 'track_video_main' },
+            params: { volume: vol },
+            reason: `Adjust clip audio volume to ${Math.round(vol * 100)}%.`,
+            confidence: 0.95,
+            status: 'proposed',
+          },
+        ];
       } else {
         rawOps = [
           {
@@ -170,7 +342,7 @@ export function AIAssistantPanel() {
             target: { clipId: 'clip_main', trackId: 'track_captions' },
             sourceRange: { start: 0, end: Number(Math.min(10, duration).toFixed(1)) },
             params: { preset: 'cinematic', highlightWord: true },
-            reason: 'Generated high-engagement kinetic subtitles for hook segment.',
+            reason: 'Generate high-engagement kinetic subtitles synchronized with spoken audio.',
             confidence: 0.98,
             status: 'proposed',
           },
@@ -354,18 +526,43 @@ export function AIAssistantPanel() {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1 mb-1.5">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <Badge
                         variant={
                           op.type === 'removeSegment'
                             ? 'danger'
-                            : op.type === 'addCaption'
+                            : op.type === 'setPlaybackRate' || op.type === 'addOverlay'
+                            ? 'coral'
+                            : op.type === 'applyFilter' || op.type === 'addCaption'
                             ? 'teal'
+                            : op.type === 'adjustVolume'
+                            ? 'warning'
+                            : op.type === 'setAspectRatio'
+                            ? 'outline'
                             : 'default'
                         }
-                        className="text-[10px] px-1.5 py-0"
+                        className="text-[10px] px-2 py-0.5 font-medium"
                       >
-                        {op.type}
+                        {op.type === 'removeSegment' && '✂️ Cut Dead Air'}
+                        {op.type === 'trimClip' && '✂️ Trim'}
+                        {op.type === 'setPlaybackRate' && `⚡ Speed ${op.params.playbackRate}x`}
+                        {op.type === 'applyFilter' && `🎨 ${op.params.filterName || op.params.preset}`}
+                        {op.type === 'addOverlay' && (op.params.titleCard ? '🎬 Title Card' : '🏷️ Overlay')}
+                        {op.type === 'adjustVolume' && `🔊 Vol ${Math.round(((op.params.volume as number) ?? 1) * 100)}%`}
+                        {op.type === 'setAspectRatio' && `📱 ${op.params.aspectRatio}`}
+                        {op.type === 'addCaption' && '💬 Captions'}
+                        {op.type === 'addTransition' && `✨ ${op.params.transitionType || 'Transition'}`}
+                        {![
+                          'removeSegment',
+                          'trimClip',
+                          'setPlaybackRate',
+                          'applyFilter',
+                          'addOverlay',
+                          'adjustVolume',
+                          'setAspectRatio',
+                          'addCaption',
+                          'addTransition',
+                        ].includes(op.type) && op.type}
                       </Badge>
                       {op.confidence && (
                         <span className="text-[10px] font-mono text-[var(--text-tertiary)]">

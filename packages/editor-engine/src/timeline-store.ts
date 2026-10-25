@@ -844,29 +844,106 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
   },
 
   applyEditOperation: (op: EditOperation) => {
-    const { removeSourceSegment, trimClip, setAspectRatio, timeline } = get();
-    if (op.type === 'removeSegment' && op.sourceRange) {
-      removeSourceSegment(op.sourceRange.start, op.sourceRange.end, true);
-    } else if (op.type === 'trimClip' && op.sourceRange) {
-      let targetId = op.target.clipId;
-      const exists = timeline.tracks.some((t) => t.clips.some((c) => c.id === targetId));
-      if (!exists) {
+    const {
+      removeSourceSegment,
+      trimClip,
+      setAspectRatio,
+      updateClipProperties,
+      setActiveFilter,
+      insertTitleCardAtStart,
+      appendTitleCardAtEnd,
+      addTextOverlayClip,
+      timeline,
+      past,
+    } = get();
+
+    // 1. Commit undo snapshot before executing operation
+    set({
+      past: [...past, JSON.parse(JSON.stringify(timeline))],
+      future: [],
+    });
+
+    // Helper to resolve target clip ID (fallback to selected clip or first video clip)
+    const resolveClipId = (): string | null => {
+      let targetId = op.target?.clipId;
+      if (targetId && timeline.tracks.some((t) => t.clips.some((c) => c.id === targetId))) {
+        return targetId;
+      }
+      if (op.sourceRange) {
         for (const track of timeline.tracks) {
           const found = track.clips.find(
             (c) =>
               (op.sourceRange!.start >= c.sourceStart && op.sourceRange!.start < c.sourceEnd) ||
               (op.sourceRange!.end > c.sourceStart && op.sourceRange!.end <= c.sourceEnd)
           );
-          if (found) {
-            targetId = found.id;
-            break;
-          }
+          if (found) return found.id;
         }
       }
-      trimClip(targetId, op.sourceRange.start, op.sourceRange.end, true);
+      return get().selectedClipId || timeline.tracks.find((t) => t.type === 'video')?.clips[0]?.id || null;
+    };
+
+    if (op.type === 'removeSegment' && op.sourceRange) {
+      removeSourceSegment(op.sourceRange.start, op.sourceRange.end, true);
+    } else if (op.type === 'trimClip' && op.sourceRange) {
+      const targetId = resolveClipId();
+      if (targetId) {
+        trimClip(targetId, op.sourceRange.start, op.sourceRange.end, true);
+      }
     } else if (op.type === 'setAspectRatio') {
       const ratio = (op.params.aspectRatio as '16:9' | '9:16' | '1:1') || '9:16';
       setAspectRatio(ratio);
+    } else if (op.type === 'setPlaybackRate') {
+      const rate = typeof op.params.playbackRate === 'number' ? op.params.playbackRate : 1.0;
+      const targetId = resolveClipId();
+      if (targetId) {
+        updateClipProperties(targetId, { playbackRate: rate });
+      }
+    } else if (op.type === 'applyFilter') {
+      const filterName = (op.params.filterName as string) || (op.params.preset as string) || 'none';
+      const targetId = resolveClipId();
+      if (targetId) {
+        updateClipProperties(targetId, { colorFilter: filterName });
+      }
+      setActiveFilter(filterName);
+    } else if (op.type === 'adjustVolume') {
+      const vol = typeof op.params.volume === 'number' ? op.params.volume : 1.0;
+      const targetId = resolveClipId();
+      if (targetId) {
+        updateClipProperties(targetId, { volume: vol });
+      }
+    } else if (op.type === 'addOverlay') {
+      if (op.params.titleCard) {
+        const titleConfig = op.params.titleCard as TitleCardConfig;
+        const dur = typeof op.params.duration === 'number' ? op.params.duration : 3.5;
+        if (op.params.position === 'start' || op.params.intro) {
+          insertTitleCardAtStart(titleConfig, dur);
+        } else {
+          appendTitleCardAtEnd(titleConfig, dur);
+        }
+      } else if (op.params.textOverlay) {
+        const textConfig = op.params.textOverlay as TextOverlayConfig;
+        const dur = typeof op.params.duration === 'number' ? op.params.duration : 3.0;
+        addTextOverlayClip(textConfig, dur);
+      }
+    } else if (op.type === 'addTransition') {
+      const targetId = resolveClipId();
+      if (targetId) {
+        const transType = (op.params.transitionType as any) || 'fade';
+        const dur = typeof op.params.duration === 'number' ? op.params.duration : 0.8;
+        const targetClip = timeline.tracks.flatMap((t) => t.clips).find((c) => c.id === targetId);
+        const existing = targetClip?.transitions || {};
+        updateClipProperties(targetId, {
+          transitions: {
+            ...existing,
+            in: { type: transType, duration: dur },
+          },
+        });
+      }
+    } else if (op.type === 'splitClip') {
+      if (typeof op.params.timestamp === 'number') {
+        get().setCurrentTime(op.params.timestamp);
+        get().splitSelectedClip();
+      }
     }
 
     set({
