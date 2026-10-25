@@ -4,6 +4,8 @@ export interface FFmpegCompilationResult {
   command: string;
   filterComplex: string;
   outputFilename: string;
+  finalVideoTag: string;
+  finalAudioTag: string;
   estimatedDuration: number;
 }
 
@@ -85,6 +87,8 @@ export function compileTimelineToFFmpeg(
       command: `ffmpeg -i "${sourcePath}" -c:v libx264 -c:a aac "${outputFilename}"`,
       filterComplex: '',
       outputFilename,
+      finalVideoTag: '0:v',
+      finalAudioTag: '0:a',
       estimatedDuration: timeline.duration,
     };
   }
@@ -182,6 +186,8 @@ export function compileTimelineToFFmpeg(
     command,
     filterComplex,
     outputFilename,
+    finalVideoTag,
+    finalAudioTag: '[concatenated_a]',
     estimatedDuration: timeline.duration,
   };
 }

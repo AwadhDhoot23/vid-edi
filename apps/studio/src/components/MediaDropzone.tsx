@@ -51,7 +51,7 @@ export function MediaDropzone() {
     const demoSource: MediaSource = {
       id: 'demo_tech_interview_sample',
       name: 'tech_founder_interview_sample.mp4',
-      path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      path: '/tech_founder_interview_sample.mp4',
       size: 15 * 1024 * 1024,
       duration: 15,
       width: 1920,
