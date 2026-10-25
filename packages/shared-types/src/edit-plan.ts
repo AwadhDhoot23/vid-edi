@@ -81,13 +81,13 @@ export interface EditPlanRequest {
     totalDuration: number;
   };
   /** Detected silence gaps computed locally */
-  silenceMap: Array<{
+  silenceMap?: Array<{
     start: number;
     end: number;
     duration: number;
   }>;
   /** Current timeline clip metadata */
-  timeline: {
+  timeline?: {
     tracks: Array<{
       id: string;
       type: string;
@@ -100,5 +100,5 @@ export interface EditPlanRequest {
     }>;
   };
   /** Allowlisted operation types */
-  allowedOperations: EditOperationType[];
+  allowedOperations?: EditOperationType[];
 }

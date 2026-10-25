@@ -35,6 +35,51 @@ export interface Track {
   volume: number; // 0 to 1
 }
 
+export interface ClipTransform {
+  scale: number; // 0.5 to 2.0 (default 1.0)
+  positionX: number; // offset in px or %
+  positionY: number; // offset in px or %
+  opacity: number; // 0 to 1 (default 1.0)
+  rotation?: number; // degrees
+}
+
+export interface TextOverlayConfig {
+  text: string;
+  subtitle?: string;
+  style: 'lower-third' | 'badge' | 'headline' | 'minimal';
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  backgroundColor?: string;
+  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' | 'bottom-center';
+}
+
+export interface TitleCardConfig {
+  title: string;
+  subtitle?: string;
+  theme: 'onyx' | 'minimal' | 'gradient' | 'warm';
+  backgroundColor: string;
+  textColor: string;
+}
+
+export interface AudioDuckingConfig {
+  enabled: boolean;
+  duckingDb: number; // e.g. -14
+  targetTrackId?: string; // e.g. 'track_audio_dialogue'
+}
+
+export interface ProjectAsset {
+  id: string;
+  name: string;
+  type: 'video' | 'audio' | 'image';
+  path: string;
+  duration: number;
+  width?: number;
+  height?: number;
+  size?: number;
+  thumbnailUrl?: string;
+}
+
 export interface Clip {
   id: string;
   sourceId: string;
@@ -45,6 +90,12 @@ export interface Clip {
   effects: Effect[];
   playbackRate: number;
   volume: number;
+  name?: string;
+  colorFilter?: string; // 'none' | 'warm-vintage' | 'teal-orange' | 'noir-bw' | 'cyberpunk' | 'clean-pop' | 'kodak-35mm' | 'bleach-bypass' | 'cool-slate'
+  transform?: ClipTransform;
+  textOverlay?: TextOverlayConfig;
+  titleCard?: TitleCardConfig;
+  audioDucking?: AudioDuckingConfig;
   transition?: Transition;
 }
 
@@ -55,7 +106,7 @@ export interface Effect {
 }
 
 export interface Transition {
-  type: 'crossfade' | 'dipToBlack' | 'fade';
+  type: 'crossfade' | 'dipToBlack' | 'dipToWhite' | 'slideLeft' | 'zoomBlur' | 'fade';
   duration: number;
 }
 

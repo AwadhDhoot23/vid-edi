@@ -11,10 +11,7 @@ import {
   Monitor,
   Square,
   Clock,
-  PlayCircle,
   HelpCircle,
-  CheckCircle2,
-  Loader2,
 } from 'lucide-react';
 import { Button, formatSecondsToTimecode, Badge } from '@vid-edi/ui';
 import { useTimelineStore } from '@vid-edi/editor-engine';
@@ -28,7 +25,6 @@ import {
   downloadTextBlob,
 } from '@vid-edi/media-processing';
 import type { ExportPreset } from '@vid-edi/shared-types';
-import { renderTimelineInBrowser, type RenderProgress } from '../utils/browser-renderer';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -39,9 +35,6 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
   const { timeline, activeSource, transcriptWords } = useTimelineStore();
   const [selectedPreset, setSelectedPreset] = useState<ExportPreset>(STANDARD_EXPORT_PRESETS[0]!);
   const [copied, setCopied] = useState(false);
-  const [isRendering, setIsRendering] = useState(false);
-  const [renderProgress, setRenderProgress] = useState<RenderProgress | null>(null);
-  const [renderSuccess, setRenderSuccess] = useState(false);
 
   const compilation = useMemo(() => {
     const filename = activeSource ? activeSource.name : 'input.mp4';
@@ -80,47 +73,6 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
       downloadTextBlob(generateSrt(segments), filename, 'text/plain;charset=utf-8');
     } else {
       downloadTextBlob(generateVtt(segments), filename, 'text/vtt;charset=utf-8');
-    }
-  };
-
-  // Direct In-Browser Video Render & Download
-  const handleRenderVideoInBrowser = async () => {
-    if (!activeSource?.path) {
-      alert('No media source URL available to render.');
-      return;
-    }
-
-    try {
-      setIsRendering(true);
-      setRenderSuccess(false);
-
-      const blob = await renderTimelineInBrowser(
-        activeSource.path,
-        timeline,
-        selectedPreset,
-        (progress) => {
-          setRenderProgress(progress);
-        }
-      );
-
-      // Trigger browser download of final edited video
-      const downloadUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      const baseName = activeSource.name.replace(/\.[^/.]+$/, '') || 'videdi';
-      a.download = `${baseName}_cut_${selectedPreset.aspectRatio.replace(':', 'x')}.webm`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
-
-      setRenderSuccess(true);
-      setTimeout(() => setRenderSuccess(false), 4000);
-    } catch (err) {
-      console.error('In-browser render failed', err);
-      alert(`Render failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setIsRendering(false);
     }
   };
 
@@ -221,74 +173,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
             </div>
           </div>
 
-          {/* SECTION 1: Direct In-Browser Video Render & Download (NEW!) */}
-          <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 flex flex-col gap-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <PlayCircle className="w-4 h-4 text-emerald-500" />
-                <span className="text-xs font-bold text-[var(--text-primary)]">
-                  1-Click In-Browser Video Download
-                </span>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold px-2 py-0.5 rounded-full">
-                  Direct .webm / .mp4
-                </span>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-              Renders your trimmed clips, extracted dead air, and chosen aspect ratio directly in your browser tab. No command line required!
-            </p>
-
-            {/* Active Render Progress Bar */}
-            {isRendering && renderProgress && (
-              <div className="flex flex-col gap-1.5 p-2.5 bg-black/40 rounded-lg border border-emerald-500/20">
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-emerald-400 flex items-center gap-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Rendering timeline: {renderProgress.percent}%
-                  </span>
-                  <span className="text-[var(--text-tertiary)]">
-                    {formatSecondsToTimecode(renderProgress.currentSec)} / {formatSecondsToTimecode(renderProgress.totalSec)}
-                  </span>
-                </div>
-                <div className="h-2 w-full bg-neutral-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-500 transition-all duration-150"
-                    style={{ width: `${renderProgress.percent}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {renderSuccess && (
-              <div className="p-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-600 dark:text-emerald-300 text-xs flex items-center gap-2 font-medium">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Video rendered & downloaded successfully! Check your browser downloads.</span>
-              </div>
-            )}
-
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleRenderVideoInBrowser}
-              disabled={isRendering || !activeSource}
-              className="w-full text-xs h-9 font-semibold gap-2 shadow-xs cursor-pointer"
-            >
-              {isRendering ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Rendering Video in Browser...</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  <span>Download Edited Video ({selectedPreset.aspectRatio} • WebM/MP4)</span>
-                </>
-              )}
-            </Button>
-          </div>
-
-          {/* SECTION 2: Native FFmpeg Command Box (For Lossless 4K Desktop Render) */}
+          {/* Native FFmpeg Command Box (For Lossless 4K Desktop Render) */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">

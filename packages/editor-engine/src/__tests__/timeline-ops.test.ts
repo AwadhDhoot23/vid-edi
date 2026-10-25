@@ -5,6 +5,7 @@ import {
   removeSegmentFromTracks,
   recalculateTimelineDuration,
   createDefaultTimeline,
+  reorderTrackClips,
 } from '../timeline-ops';
 import type { Clip, Track } from '@vid-edi/shared-types';
 
@@ -145,4 +146,26 @@ describe('Timeline Operations', () => {
     expect(clips[1]?.sourceStart).toBe(8);
     expect(clips[1]?.sourceEnd).toBe(15);
   });
+
+  it('reorderTrackClips swaps clip positions and ripples timelineStart sequentially', () => {
+    const clips: Clip[] = [
+      { ...sampleClip, id: 'clip_A', timelineStart: 0, timelineDuration: 10 },
+      { ...sampleClip, id: 'clip_B', timelineStart: 10, timelineDuration: 5 },
+      { ...sampleClip, id: 'clip_C', timelineStart: 15, timelineDuration: 8 },
+    ];
+
+    // Move clip_A (index 0) to after clip_B (index 1)
+    const reordered = reorderTrackClips(clips, 0, 1);
+    expect(reordered.map((c) => c.id)).toEqual(['clip_B', 'clip_A', 'clip_C']);
+    // Clip B: 0 to 5s
+    expect(reordered[0]?.timelineStart).toBe(0);
+    expect(reordered[0]?.timelineDuration).toBe(5);
+    // Clip A: 5 to 15s
+    expect(reordered[1]?.timelineStart).toBe(5);
+    expect(reordered[1]?.timelineDuration).toBe(10);
+    // Clip C: 15 to 23s
+    expect(reordered[2]?.timelineStart).toBe(15);
+    expect(reordered[2]?.timelineDuration).toBe(8);
+  });
 });
+

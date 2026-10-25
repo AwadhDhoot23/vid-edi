@@ -8,7 +8,11 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
-import { useTimelineStore } from '@vid-edi/editor-engine';
+import {
+  useTimelineStore,
+  getActiveClipAtTime,
+  getTimelineTimeFromSourceTime,
+} from '@vid-edi/editor-engine';
 import { Button, formatSecondsToTimecode } from '@vid-edi/ui';
 import {
   wordsToSegments,
@@ -56,7 +60,7 @@ const INITIAL_TRANSCRIPT: TranscriptWord[] = [
 ];
 
 export function TranscriptPanel() {
-  const { currentTime, setCurrentTime, activeSource, setTranscriptWords } = useTimelineStore();
+  const { currentTime, setCurrentTime, activeSource, setTranscriptWords, timeline } = useTimelineStore();
   const [words, setWords] = useState<TranscriptWord[]>(INITIAL_TRANSCRIPT);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -65,6 +69,10 @@ export function TranscriptPanel() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeStatus, setTranscribeStatus] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Derive source media playback time from current timeline time
+  const activeClipInfo = getActiveClipAtTime(timeline.tracks, currentTime);
+  const currentSourceTime = activeClipInfo?.sourceTime ?? currentTime;
 
   // Sync words into shared store for AI Planner pause detection
   useEffect(() => {
@@ -273,8 +281,10 @@ export function TranscriptPanel() {
         {activeSource ? (
           <div className="flex flex-wrap gap-x-1.5 gap-y-2">
             {words.map((w, idx) => {
-              const isActive = currentTime >= w.start && currentTime <= w.end;
-              const isPast = currentTime > w.end;
+              const wordTimelineTime = getTimelineTimeFromSourceTime(timeline.tracks, w.start);
+              const isCut = wordTimelineTime === null;
+              const isActive = !isCut && currentSourceTime >= w.start && currentSourceTime <= w.end;
+              const isPast = isCut || currentSourceTime > w.end;
               const matchesSearch =
                 searchQuery && w.text.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -307,18 +317,30 @@ export function TranscriptPanel() {
               return (
                 <span
                   key={idx}
-                  onClick={() => setCurrentTime(w.start)}
+                  onClick={() => {
+                    if (wordTimelineTime !== null) {
+                      setCurrentTime(wordTimelineTime);
+                    }
+                  }}
                   onDoubleClick={() => handleStartEdit(idx, w.text)}
-                  className={`group relative cursor-pointer px-1.5 py-0.5 rounded-sm transition-all duration-100 ${
+                  className={`group relative px-1.5 py-0.5 rounded-sm transition-all duration-100 ${
+                    isCut
+                      ? 'opacity-35 line-through text-[var(--text-tertiary)] hover:opacity-60 cursor-not-allowed'
+                      : 'cursor-pointer'
+                  } ${
                     isActive
-                      ? 'bg-[var(--accent-coral)] text-white font-semibold shadow-xs scale-105'
+                      ? 'bg-[var(--accent-coral)] text-white font-semibold shadow-xs scale-105 z-10'
                       : matchesSearch
                       ? 'bg-amber-400/30 text-amber-950 dark:text-amber-200 ring-1 ring-amber-400 font-medium'
                       : isPast
                       ? 'text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]'
                       : 'text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
                   }`}
-                  title={`Seek to ${formatSecondsToTimecode(w.start)} (Double-click to edit)`}
+                  title={
+                    isCut
+                      ? `${w.text} (Cut from timeline)`
+                      : `Seek to ${formatSecondsToTimecode(wordTimelineTime!)} (Double-click to edit)`
+                  }
                 >
                   {w.text}
                 </span>

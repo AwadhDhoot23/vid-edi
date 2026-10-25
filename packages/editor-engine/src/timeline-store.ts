@@ -1,11 +1,22 @@
 import { create } from 'zustand';
-import type { Timeline, Track, Clip, EditOperation, MediaSource, TranscriptWord } from '@vid-edi/shared-types';
+import type {
+  Timeline,
+  Track,
+  Clip,
+  EditOperation,
+  MediaSource,
+  TranscriptWord,
+  ProjectAsset,
+  TextOverlayConfig,
+  TitleCardConfig,
+} from '@vid-edi/shared-types';
 import {
   createDefaultTimeline,
   recalculateTimelineDuration,
   splitClipAtTimestamp,
-  trimClipBoundary,
   removeSegmentFromTracks,
+  removeSourceSegmentFromTracks,
+  reorderTrackClips,
 } from './timeline-ops';
 
 export interface TimelineStoreState {
@@ -18,6 +29,9 @@ export interface TimelineStoreState {
   history: EditOperation[];
   past: Timeline[];
   future: Timeline[];
+  projectAssets: ProjectAsset[];
+  activeFilter: string;
+  activeAspectRatio: '16:9' | '9:16' | '1:1';
 
   // Actions
   setMediaSource: (source: MediaSource) => void;
@@ -26,12 +40,21 @@ export interface TimelineStoreState {
   setSelectedClipId: (id: string | null) => void;
   setTranscriptWords: (words: TranscriptWord[]) => void;
   splitSelectedClip: () => void;
-  removeClip: (clipId: string) => void;
-  trimClip: (clipId: string, newStart: number, newEnd: number, recordHistory?: boolean) => void;
+  removeClip: (clipId: string, ripple?: boolean) => void;
+  trimClip: (clipId: string, newStart: number, newEnd: number, recordHistory?: boolean, ripple?: boolean) => void;
   removeSegment: (startSec: number, endSec: number, ripple?: boolean) => void;
+  removeSourceSegment: (sourceStart: number, sourceEnd: number, ripple?: boolean) => void;
   applyEditOperation: (op: EditOperation) => void;
   recordHistoryOperation: (op: EditOperation) => void;
   setAspectRatio: (ratio: '16:9' | '9:16' | '1:1') => void;
+  addProjectAsset: (asset: ProjectAsset) => void;
+  removeProjectAsset: (assetId: string) => void;
+  addAssetToTimeline: (asset: ProjectAsset, trackId?: string) => void;
+  addTextOverlayClip: (config: TextOverlayConfig, duration?: number) => void;
+  addTitleCardClip: (config: TitleCardConfig, duration?: number) => void;
+  reorderClips: (trackId: string, fromIndex: number, toIndex: number) => void;
+  updateClipProperties: (clipId: string, updates: Partial<Clip>) => void;
+  setActiveFilter: (filterName: string) => void;
   commitHistorySnapshot: (snapshot: Timeline) => void;
   undo: () => void;
   redo: () => void;
@@ -48,6 +71,9 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
   history: [],
   past: [],
   future: [],
+  projectAssets: [],
+  activeFilter: 'none',
+  activeAspectRatio: '16:9',
 
   setMediaSource: (source: MediaSource) => {
     const defaultTimeline = createDefaultTimeline();
@@ -76,11 +102,26 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
       tracks,
     };
 
+    const initialAsset: ProjectAsset = {
+      id: source.id,
+      name: source.name,
+      type: 'video',
+      path: source.path,
+      duration: source.duration,
+      width: source.width,
+      height: source.height,
+      size: source.size,
+    };
+    const currentAssets = get().projectAssets;
+    const hasAsset = currentAssets.some((a) => a.id === source.id);
+    const updatedAssets = hasAsset ? currentAssets : [initialAsset, ...currentAssets];
+
     set({
       activeSource: source,
       timeline: newTimeline,
       currentTime: 0,
       selectedClipId: mainClip.id,
+      projectAssets: updatedAssets,
       past: [],
       future: [],
     });
@@ -145,12 +186,44 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
     });
   },
 
-  removeClip: (clipId: string) => {
+  removeClip: (clipId: string, ripple = true) => {
     const { timeline, past } = get();
-    const updatedTracks = timeline.tracks.map((track) => ({
-      ...track,
-      clips: track.clips.filter((c) => c.id !== clipId),
-    }));
+
+    let targetClip: Clip | null = null;
+    let targetTrackIndex = -1;
+    for (let t = 0; t < timeline.tracks.length; t++) {
+      const track = timeline.tracks[t];
+      if (!track) continue;
+      const found = track.clips.find((c) => c.id === clipId);
+      if (found) {
+        targetClip = found;
+        targetTrackIndex = t;
+        break;
+      }
+    }
+
+    if (!targetClip) return;
+
+    const gapStart = targetClip.timelineStart;
+    const gapDuration = targetClip.timelineDuration;
+
+    const updatedTracks = timeline.tracks.map((track, tIdx) => {
+      if (tIdx !== targetTrackIndex) return track;
+      return {
+        ...track,
+        clips: track.clips
+          .filter((c) => c.id !== clipId)
+          .map((c) => {
+            if (ripple && c.timelineStart >= gapStart + gapDuration - 0.001) {
+              return {
+                ...c,
+                timelineStart: Math.max(0, c.timelineStart - gapDuration),
+              };
+            }
+            return c;
+          }),
+      };
+    });
 
     const updatedTimeline: Timeline = {
       ...timeline,
@@ -174,28 +247,68 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
     });
   },
 
-  trimClip: (clipId: string, newStart: number, newEnd: number, recordHistory = true) => {
+  trimClip: (
+    clipId: string,
+    newStart: number,
+    newEnd: number,
+    recordHistory = true,
+    ripple = true
+  ) => {
     const { timeline, past } = get();
     if (newStart >= newEnd || newStart < 0) return;
 
-    let modified = false;
-    const updatedTracks = timeline.tracks.map((track) => {
-      const clipIndex = track.clips.findIndex((c) => c.id === clipId);
-      if (clipIndex === -1) return track;
+    let targetClip: Clip | null = null;
+    let targetTrackIndex = -1;
+    let targetClipIndex = -1;
 
-      const clip = track.clips[clipIndex];
-      if (!clip) return track;
+    for (let t = 0; t < timeline.tracks.length; t++) {
+      const track = timeline.tracks[t];
+      if (!track) continue;
+      const cIndex = track.clips.findIndex((c) => c.id === clipId);
+      if (cIndex !== -1) {
+        targetClip = track.clips[cIndex] ?? null;
+        targetTrackIndex = t;
+        targetClipIndex = cIndex;
+        break;
+      }
+    }
 
-      const trimmed = trimClipBoundary(clip, newStart, newEnd);
-      if (!trimmed) return track;
+    if (!targetClip || targetTrackIndex === -1) return;
 
-      modified = true;
-      const updatedClips = [...track.clips];
-      updatedClips[clipIndex] = trimmed;
+    const isLeftTrim = Math.abs(newStart - targetClip.sourceStart) > 0.0001;
+    const newDuration = (newEnd - newStart) / targetClip.playbackRate;
+    const oldDuration = targetClip.timelineDuration;
+    const durationDelta = oldDuration - newDuration;
+
+    // For left trim: with ripple, clip stays at its current timelineStart and downstream clips shift left
+    const newTimelineStart = isLeftTrim && ripple
+      ? targetClip.timelineStart
+      : (isLeftTrim ? targetClip.timelineStart + (newStart - targetClip.sourceStart) / targetClip.playbackRate : targetClip.timelineStart);
+
+    const trimmedClip: Clip = {
+      ...targetClip,
+      sourceStart: newStart,
+      sourceEnd: newEnd,
+      timelineStart: Math.max(0, newTimelineStart),
+      timelineDuration: newDuration,
+    };
+
+    const oldEnd = targetClip.timelineStart + targetClip.timelineDuration;
+
+    const updatedTracks = timeline.tracks.map((track, tIdx) => {
+      if (tIdx !== targetTrackIndex) return track;
+      const updatedClips = track.clips.map((c, cIdx) => {
+        if (cIdx === targetClipIndex) return trimmedClip;
+        if (ripple && c.timelineStart >= oldEnd - 0.001) {
+          return {
+            ...c,
+            timelineStart: Math.max(0, c.timelineStart - durationDelta),
+          };
+        }
+        return c;
+      });
       return { ...track, clips: updatedClips };
     });
-
-    if (!modified) return;
 
     const updatedTimeline: Timeline = {
       ...timeline,
@@ -225,6 +338,21 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
     });
   },
 
+  removeSourceSegment: (sourceStart: number, sourceEnd: number, ripple = true) => {
+    const { timeline, past } = get();
+    const updatedTracks = removeSourceSegmentFromTracks(timeline.tracks, sourceStart, sourceEnd, ripple);
+    const updatedTimeline: Timeline = {
+      ...timeline,
+      tracks: updatedTracks,
+      duration: recalculateTimelineDuration(updatedTracks),
+    };
+    set({
+      past: [...past, timeline],
+      timeline: updatedTimeline,
+      future: [],
+    });
+  },
+
   setAspectRatio: (ratio: '16:9' | '9:16' | '1:1') => {
     const { timeline, past } = get();
     let resolution = { width: 1920, height: 1080 };
@@ -239,16 +367,253 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
         ...timeline,
         resolution,
       },
+      activeAspectRatio: ratio,
       future: [],
     });
   },
 
+  addProjectAsset: (asset: ProjectAsset) => {
+    const { projectAssets } = get();
+    if (projectAssets.some((a) => a.id === asset.id)) return;
+    set({ projectAssets: [asset, ...projectAssets] });
+  },
+
+  removeProjectAsset: (assetId: string) => {
+    const { projectAssets } = get();
+    set({ projectAssets: projectAssets.filter((a) => a.id !== assetId) });
+  },
+
+  addAssetToTimeline: (asset: ProjectAsset, trackId?: string) => {
+    const { timeline, past, activeSource } = get();
+    let targetTrackId = trackId;
+    if (!targetTrackId) {
+      if (asset.type === 'video') targetTrackId = 'track_video_main';
+      else if (asset.type === 'audio') targetTrackId = 'track_audio_music';
+      else targetTrackId = 'track_overlay';
+    }
+
+    const duration = asset.duration > 0 ? asset.duration : 5;
+    const targetTrack = timeline.tracks.find((t) => t.id === targetTrackId);
+    let startSec = 0;
+    if (targetTrack && targetTrack.clips.length > 0) {
+      const lastClip = targetTrack.clips[targetTrack.clips.length - 1];
+      if (lastClip) {
+        startSec = lastClip.timelineStart + lastClip.timelineDuration;
+      }
+    }
+
+    const newClip: Clip = {
+      id: `clip_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: asset.name,
+      sourceId: asset.id,
+      sourceStart: 0,
+      sourceEnd: duration,
+      timelineStart: startSec,
+      timelineDuration: duration,
+      effects: [],
+      playbackRate: 1,
+      volume: 1,
+    };
+
+    const updatedTracks = timeline.tracks.map((track) => {
+      if (track.id !== targetTrackId) return track;
+      return { ...track, clips: [...track.clips, newClip] };
+    });
+
+    const newDuration = recalculateTimelineDuration(updatedTracks);
+    const updatedTimeline: Timeline = {
+      ...timeline,
+      duration: newDuration,
+      tracks: updatedTracks,
+    };
+
+    let nextActiveSource = activeSource;
+    if (!nextActiveSource && asset.type === 'video') {
+      nextActiveSource = {
+        id: asset.id,
+        name: asset.name,
+        path: asset.path,
+        size: asset.size || 0,
+        duration: asset.duration,
+        width: asset.width || 1920,
+        height: asset.height || 1080,
+        fps: 30,
+        codec: 'h264',
+        audioChannels: 2,
+        audioSampleRate: 48000,
+        mimeType: 'video/mp4',
+      };
+    }
+
+    set({
+      past: [...past, timeline],
+      timeline: updatedTimeline,
+      selectedClipId: newClip.id,
+      activeSource: nextActiveSource,
+      future: [],
+    });
+  },
+
+  addTextOverlayClip: (config: TextOverlayConfig, duration = 4) => {
+    const { timeline, currentTime, past } = get();
+    const newClip: Clip = {
+      id: `text_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: config.text.slice(0, 24) || 'Text Overlay',
+      sourceId: 'overlay_text',
+      sourceStart: 0,
+      sourceEnd: duration,
+      timelineStart: currentTime,
+      timelineDuration: duration,
+      effects: [],
+      playbackRate: 1,
+      volume: 1,
+      textOverlay: config,
+    };
+
+    const updatedTracks = timeline.tracks.map((track) => {
+      if (track.id !== 'track_overlay') return track;
+      return { ...track, clips: [...track.clips, newClip] };
+    });
+
+    const updatedTimeline: Timeline = {
+      ...timeline,
+      duration: recalculateTimelineDuration(updatedTracks),
+      tracks: updatedTracks,
+    };
+
+    set({
+      past: [...past, timeline],
+      timeline: updatedTimeline,
+      selectedClipId: newClip.id,
+      future: [],
+    });
+  },
+
+  addTitleCardClip: (config: TitleCardConfig, duration = 3.5) => {
+    const { timeline, currentTime, past } = get();
+    const newClip: Clip = {
+      id: `title_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: config.title.slice(0, 24) || 'Title Card',
+      sourceId: 'overlay_title',
+      sourceStart: 0,
+      sourceEnd: duration,
+      timelineStart: currentTime,
+      timelineDuration: duration,
+      effects: [],
+      playbackRate: 1,
+      volume: 1,
+      titleCard: config,
+    };
+
+    const updatedTracks = timeline.tracks.map((track) => {
+      if (track.id !== 'track_overlay') return track;
+      return { ...track, clips: [...track.clips, newClip] };
+    });
+
+    const updatedTimeline: Timeline = {
+      ...timeline,
+      duration: recalculateTimelineDuration(updatedTracks),
+      tracks: updatedTracks,
+    };
+
+    set({
+      past: [...past, timeline],
+      timeline: updatedTimeline,
+      selectedClipId: newClip.id,
+      future: [],
+    });
+  },
+
+  reorderClips: (trackId: string, fromIndex: number, toIndex: number) => {
+    const { timeline, past } = get();
+    const targetTrack = timeline.tracks.find((t) => t.id === trackId);
+    if (!targetTrack || fromIndex === toIndex) return;
+
+    const reordered = reorderTrackClips(targetTrack.clips, fromIndex, toIndex);
+    const updatedTracks = timeline.tracks.map((t) => {
+      if (t.id !== trackId) return t;
+      return { ...t, clips: reordered };
+    });
+
+    const updatedTimeline: Timeline = {
+      ...timeline,
+      duration: recalculateTimelineDuration(updatedTracks),
+      tracks: updatedTracks,
+    };
+
+    set({
+      past: [...past, timeline],
+      timeline: updatedTimeline,
+      future: [],
+    });
+  },
+
+  updateClipProperties: (clipId: string, updates: Partial<Clip>) => {
+    const { timeline, past } = get();
+    let found = false;
+
+    const updatedTracks = timeline.tracks.map((track) => {
+      const updatedClips = track.clips.map((clip) => {
+        if (clip.id !== clipId) return clip;
+        found = true;
+        return {
+          ...clip,
+          ...updates,
+          transform: updates.transform
+            ? { ...(clip.transform || { scale: 1, positionX: 0, positionY: 0, opacity: 1 }), ...updates.transform }
+            : clip.transform,
+          textOverlay: updates.textOverlay
+            ? { ...clip.textOverlay!, ...updates.textOverlay }
+            : clip.textOverlay,
+          titleCard: updates.titleCard
+            ? { ...clip.titleCard!, ...updates.titleCard }
+            : clip.titleCard,
+          audioDucking: updates.audioDucking
+            ? { ...clip.audioDucking!, ...updates.audioDucking }
+            : clip.audioDucking,
+        };
+      });
+      return { ...track, clips: updatedClips };
+    });
+
+    if (!found) return;
+
+    set({
+      past: [...past, timeline],
+      timeline: { ...timeline, tracks: updatedTracks },
+      future: [],
+    });
+  },
+
+  setActiveFilter: (filterName: string) => {
+    const { selectedClipId, updateClipProperties } = get();
+    set({ activeFilter: filterName });
+    if (selectedClipId) {
+      updateClipProperties(selectedClipId, { colorFilter: filterName });
+    }
+  },
+
   applyEditOperation: (op: EditOperation) => {
-    const { removeSegment, trimClip, setAspectRatio } = get();
+    const { removeSourceSegment, trimClip, setAspectRatio, timeline } = get();
     if (op.type === 'removeSegment' && op.sourceRange) {
-      removeSegment(op.sourceRange.start, op.sourceRange.end, true);
+      removeSourceSegment(op.sourceRange.start, op.sourceRange.end, true);
     } else if (op.type === 'trimClip' && op.sourceRange) {
-      trimClip(op.target.clipId, op.sourceRange.start, op.sourceRange.end, true);
+      let targetId = op.target.clipId;
+      const exists = timeline.tracks.some((t) => t.clips.some((c) => c.id === targetId));
+      if (!exists) {
+        for (const track of timeline.tracks) {
+          const found = track.clips.find(
+            (c) =>
+              (op.sourceRange!.start >= c.sourceStart && op.sourceRange!.start < c.sourceEnd) ||
+              (op.sourceRange!.end > c.sourceStart && op.sourceRange!.end <= c.sourceEnd)
+          );
+          if (found) {
+            targetId = found.id;
+            break;
+          }
+        }
+      }
+      trimClip(targetId, op.sourceRange.start, op.sourceRange.end, true);
     } else if (op.type === 'setAspectRatio') {
       const ratio = (op.params.aspectRatio as '16:9' | '9:16' | '1:1') || '9:16';
       setAspectRatio(ratio);

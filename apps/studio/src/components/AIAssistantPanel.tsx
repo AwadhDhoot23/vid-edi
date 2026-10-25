@@ -11,10 +11,11 @@ import {
   Mic,
   Scissors,
   CheckCircle,
+  Loader2,
 } from 'lucide-react';
 import { Button, Card, Badge, formatSecondsToTimecode } from '@vid-edi/ui';
 import { useTimelineStore } from '@vid-edi/editor-engine';
-import { validateEditPlan } from '@vid-edi/ai-planner';
+import { validateEditPlan, GroqLlamaAdapter } from '@vid-edi/ai-planner';
 import type { EditOperation } from '@vid-edi/shared-types';
 
 type PanelTab = 'copilot' | 'recipes' | 'history';
@@ -41,7 +42,7 @@ export function AIAssistantPanel() {
     'Generate styled subtitles',
   ];
 
-  const handlePropose = (instruction: string) => {
+  const handlePropose = async (instruction: string) => {
     if (!activeSource) {
       alert('Please load a video first to analyze transcript and generate edit plans.');
       return;
@@ -50,10 +51,31 @@ export function AIAssistantPanel() {
     setIsAnalyzing(true);
     const lower = instruction.toLowerCase();
     const duration = activeSource.duration || 15;
+    const groqApiKey = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_GROQ_API_KEY;
 
-    setTimeout(() => {
-      let rawOps: EditOperation[] = [];
+    let rawOps: EditOperation[] = [];
 
+    // Try Groq Llama 3 LLM first if API key is configured and words are available
+    if (groqApiKey && transcriptWords && transcriptWords.length > 0 && !lower.startsWith('remove long pauses')) {
+      try {
+        const adapter = new GroqLlamaAdapter({ apiKey: groqApiKey });
+        const llmOps = await adapter.generateEditPlan({
+          instruction,
+          transcript: {
+            words: transcriptWords,
+            totalDuration: duration,
+          },
+        });
+        if (llmOps && llmOps.length > 0) {
+          rawOps = llmOps;
+        }
+      } catch (err) {
+        console.warn('Groq Llama LLM query failed, falling back to deterministic rules:', err);
+      }
+    }
+
+    // Deterministic rules fallback
+    if (rawOps.length === 0) {
       if (lower.includes('pause') || lower.includes('silence')) {
         const detectedPauses: EditOperation[] = [];
 
@@ -154,20 +176,20 @@ export function AIAssistantPanel() {
           },
         ];
       }
+    }
 
-      // Strict validation against schema and bounds
-      const validation = validateEditPlan(rawOps, duration);
-      if (validation.success) {
-        setProposals(validation.data);
-      } else {
-        console.warn('AI Proposal validation warnings:', validation.errors);
-        setProposals(rawOps);
-      }
+    // Strict validation against schema and bounds
+    const validation = validateEditPlan(rawOps, duration);
+    if (validation.success) {
+      setProposals(validation.data);
+    } else {
+      console.warn('AI Proposal validation warnings:', validation.errors);
+      setProposals(rawOps);
+    }
 
-      setIsAnalyzing(false);
-      setPrompt('');
-      setActiveTab('copilot');
-    }, 500);
+    setIsAnalyzing(false);
+    setPrompt('');
+    setActiveTab('copilot');
   };
 
   const handleAccept = (id: string) => {
@@ -422,8 +444,13 @@ export function AIAssistantPanel() {
                 type="submit"
                 disabled={!prompt.trim() || isAnalyzing}
                 className="absolute right-1.5 top-1.5 p-1 rounded-md bg-[var(--accent-coral)] text-white hover:opacity-90 disabled:opacity-30 disabled:pointer-events-none transition-opacity cursor-pointer"
+                title={isAnalyzing ? 'Analyzing transcript...' : 'Generate AI edit proposal'}
               >
-                <CornerDownLeft className="w-3.5 h-3.5" />
+                {isAnalyzing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CornerDownLeft className="w-3.5 h-3.5" />
+                )}
               </button>
             </form>
           </div>

@@ -3,14 +3,11 @@ import { ThemeProvider } from '@vid-edi/ui';
 import { Header } from './components/Header';
 import { VideoPlayer } from './components/VideoPlayer';
 import { TimelineView } from './components/TimelineView';
-import { MediaDropzone } from './components/MediaDropzone';
-import { AIAssistantPanel } from './components/AIAssistantPanel';
-import { TranscriptPanel } from './components/TranscriptPanel';
+import { ActivityDock } from './components/ActivityDock';
+import { PropertyInspector } from './components/PropertyInspector';
 import { CoverPage } from './components/CoverPage';
-import { useTimelineStore } from '@vid-edi/editor-engine';
 
 export function App() {
-  const { activeSource } = useTimelineStore();
   const [currentView, setCurrentView] = useState<'home' | 'studio'>('home');
 
   useEffect(() => {
@@ -43,27 +40,22 @@ export function App() {
         <CoverPage onLaunchStudio={goToStudio} />
       ) : (
         <div className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-base)] text-[var(--text-primary)]">
-          {/* Studio Top Header Bar with Home Navigation */}
+          {/* Studio Top Header Bar with Home Navigation & Lossless Export */}
           <Header onGoHome={goToHome} />
 
-          {/* Main Center Editor Canvas */}
+          {/* 3-Zone Professional Creator Workspace */}
           <div className="flex-1 flex overflow-hidden">
-            {/* Left Sidebar (Media & Inspector) */}
-            <div className="w-80 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] flex flex-col shrink-0 overflow-y-auto">
-              <MediaDropzone />
-            </div>
+            {/* Zone 1: Left Activity Dock (Media Bin, Transcript, Text, Filters, Transitions, Audio, AI Copilot) */}
+            <ActivityDock />
 
-            {/* Center Stage: Video Player + Timelines */}
+            {/* Zone 2: Center Stage (Preview Monitor with Live Filters & 5-Track Interactive Timeline) */}
             <div className="flex-1 flex flex-col overflow-hidden min-w-0">
               <VideoPlayer />
               <TimelineView />
             </div>
 
-            {/* Transcript Sync Panel */}
-            {activeSource && <TranscriptPanel />}
-
-            {/* Right AI Assistant & Edit Proposals */}
-            <AIAssistantPanel />
+            {/* Zone 3: Right Contextual Property Inspector (Transforms, Audio Ducking, Text Styling, Aspect Ratio) */}
+            <PropertyInspector />
           </div>
         </div>
       )}

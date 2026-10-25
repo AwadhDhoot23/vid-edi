@@ -1,5 +1,15 @@
 import { useRef, useState, useEffect } from 'react';
-import { Volume2, VolumeX, Lock, Unlock, Scissors, Trash2, Undo2, Redo2 } from 'lucide-react';
+import {
+  Volume2,
+  VolumeX,
+  Lock,
+  Unlock,
+  Scissors,
+  Trash2,
+  Undo2,
+  Redo2,
+  Layers,
+} from 'lucide-react';
 import { useTimelineStore } from '@vid-edi/editor-engine';
 import { Button, formatSecondsToTimecode } from '@vid-edi/ui';
 import type { Track, Clip } from '@vid-edi/shared-types';
@@ -7,6 +17,20 @@ import type { Track, Clip } from '@vid-edi/shared-types';
 export function TimelineView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState(1); // 1x to 4x zoom
+  const [draggedClipInfo, setDraggedClipInfo] = useState<{
+    clipId: string;
+    trackId: string;
+    fromIndex: number;
+    initialX: number;
+    currentX: number;
+  } | null>(null);
+
+  const [insertionIndicator, setInsertionIndicator] = useState<{
+    trackId: string;
+    targetIndex: number;
+    indicatorPx: number;
+  } | null>(null);
+
   const {
     timeline,
     currentTime,
@@ -16,6 +40,7 @@ export function TimelineView() {
     splitSelectedClip,
     removeClip,
     trimClip,
+    reorderClips,
     commitHistorySnapshot,
     activeSource,
     undo,
@@ -94,6 +119,7 @@ export function TimelineView() {
   ]);
 
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (draggedClipInfo) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickedSeconds = clickX / basePixelsPerSecond;
@@ -144,6 +170,83 @@ export function TimelineView() {
 
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // Direct Pointer Clip Drag-to-Reorder on Video 1 (Task R13)
+  const handleClipDragStart = (
+    e: React.PointerEvent,
+    track: Track,
+    clip: Clip,
+    fromIndex: number
+  ) => {
+    if (track.clips.length <= 1) return;
+    e.stopPropagation();
+
+    const initialX = e.clientX;
+    let isReordering = false;
+
+    const onPointerMove = (moveEv: PointerEvent) => {
+      const deltaX = moveEv.clientX - initialX;
+      if (!isReordering && Math.abs(deltaX) > 6) {
+        isReordering = true;
+        setDraggedClipInfo({
+          clipId: clip.id,
+          trackId: track.id,
+          fromIndex,
+          initialX,
+          currentX: moveEv.clientX,
+        });
+      }
+
+      if (!isReordering) return;
+
+      setDraggedClipInfo((prev) => (prev ? { ...prev, currentX: moveEv.clientX } : null));
+
+      // Calculate candidate insertion target
+      const trackClips = track.clips;
+      const targetTimelineX =
+        (moveEv.clientX - (containerRef.current?.getBoundingClientRect().left ?? 0) + (containerRef.current?.scrollLeft ?? 0));
+      const targetSec = targetTimelineX / basePixelsPerSecond;
+
+      let targetIndex = 0;
+      let indicatorPx = 0;
+
+      for (let i = 0; i < trackClips.length; i++) {
+        const c = trackClips[i];
+        if (!c) continue;
+        const midpoint = c.timelineStart + c.timelineDuration / 2;
+        if (targetSec > midpoint) {
+          targetIndex = i + 1;
+          indicatorPx = (c.timelineStart + c.timelineDuration) * basePixelsPerSecond;
+        } else {
+          indicatorPx = c.timelineStart * basePixelsPerSecond;
+          break;
+        }
+      }
+
+      setInsertionIndicator({
+        trackId: track.id,
+        targetIndex: Math.min(targetIndex, trackClips.length - 1),
+        indicatorPx,
+      });
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+
+      if (isReordering && insertionIndicator) {
+        if (fromIndex !== insertionIndicator.targetIndex) {
+          reorderClips(track.id, fromIndex, insertionIndicator.targetIndex);
+        }
+      }
+
+      setDraggedClipInfo(null);
+      setInsertionIndicator(null);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
   };
 
   const getTrackColorClasses = (type: Track['type']) => {
@@ -214,17 +317,17 @@ export function TimelineView() {
                 size="sm"
                 onClick={splitSelectedClip}
                 className="h-7 text-xs px-2.5 gap-1.5 text-[var(--text-primary)] border border-[var(--border-strong)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] font-medium cursor-pointer"
-                title="Split clip at playhead"
+                title="Split clip at playhead (S)"
               >
                 <Scissors className="w-3 h-3 text-[var(--accent-primary)]" />
-                <span>Split</span>
+                <span>Split (S)</span>
               </Button>
               <Button
                 variant="danger"
                 size="sm"
                 onClick={() => removeClip(selectedClipId)}
                 className="h-7 text-xs px-2.5 gap-1.5 bg-rose-500 hover:bg-rose-600 text-white font-medium shadow-xs border border-rose-600 cursor-pointer"
-                title="Delete selected clip"
+                title="Delete selected clip (Delete)"
               >
                 <Trash2 className="w-3 h-3 text-white" />
                 <span>Delete</span>
@@ -265,14 +368,14 @@ export function TimelineView() {
               <div className="flex items-center gap-1 opacity-70 hover:opacity-100">
                 <button
                   type="button"
-                  className="p-1 hover:text-[var(--text-primary)]"
+                  className="p-1 hover:text-[var(--text-primary)] cursor-pointer"
                   title="Mute track"
                 >
                   {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
                 </button>
                 <button
                   type="button"
-                  className="p-1 hover:text-[var(--text-primary)]"
+                  className="p-1 hover:text-[var(--text-primary)] cursor-pointer"
                   title="Lock track"
                 >
                   {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
@@ -321,16 +424,36 @@ export function TimelineView() {
               <div className="w-[1.5px] h-full bg-[var(--accent-primary)] mx-auto shadow-xs" />
             </div>
 
+            {/* Visual Reorder Drop Insertion Guide Line (Task R13) */}
+            {insertionIndicator && (
+              <div
+                className="absolute top-6 bottom-0 w-1 bg-emerald-400 z-40 pointer-events-none shadow-[0_0_8px_rgba(52,211,153,0.8)] flex flex-col justify-between items-center transition-all duration-75"
+                style={{ left: `${insertionIndicator.indicatorPx}px`, transform: 'translateX(-50%)' }}
+              >
+                <div className="w-2.5 h-2.5 bg-emerald-400 rotate-45 -mt-1 shadow-xs" />
+                <div className="w-2.5 h-2.5 bg-emerald-400 rotate-45 -mb-1 shadow-xs" />
+              </div>
+            )}
+
             {/* Tracks Content */}
             {timeline.tracks.map((track) => (
               <div
                 key={track.id}
                 className="h-10 border-b border-[var(--border-subtle)]/60 relative bg-black/[0.02] dark:bg-white/[0.02]"
               >
-                {track.clips.map((clip) => {
+                {track.clips.map((clip, clipIdx) => {
                   const isSelected = selectedClipId === clip.id;
+                  const isDragged = draggedClipInfo?.clipId === clip.id;
                   const clipLeft = clip.timelineStart * basePixelsPerSecond;
                   const clipWidth = clip.timelineDuration * basePixelsPerSecond;
+
+                  // Label determination
+                  let clipLabel = clip.name || clip.id;
+                  if (clip.textOverlay) {
+                    clipLabel = `📝 ${clip.textOverlay.text}`;
+                  } else if (clip.titleCard) {
+                    clipLabel = `🎬 ${clip.titleCard.title}`;
+                  }
 
                   return (
                     <div
@@ -339,13 +462,14 @@ export function TimelineView() {
                         e.stopPropagation();
                         setSelectedClipId(clip.id);
                       }}
-                      className={`group absolute top-1 bottom-1 rounded-md border text-xs px-2 flex items-center justify-between cursor-pointer shadow-xs transition-all duration-100 select-none ${getTrackColorClasses(
+                      onPointerDown={(e) => handleClipDragStart(e, track, clip, clipIdx)}
+                      className={`group absolute top-1 bottom-1 rounded-md border text-xs px-2 flex items-center justify-between cursor-grab active:cursor-grabbing shadow-xs transition-all duration-75 select-none ${getTrackColorClasses(
                         track.type
                       )} ${
                         isSelected
                           ? 'ring-2 ring-[var(--accent-primary)] shadow-md brightness-105 z-20'
                           : 'hover:brightness-95'
-                      }`}
+                      } ${isDragged ? 'opacity-40 scale-98 shadow-xl' : ''}`}
                       style={{
                         left: `${clipLeft}px`,
                         width: `${Math.max(clipWidth, 16)}px`,
@@ -362,9 +486,35 @@ export function TimelineView() {
                         </div>
                       )}
 
+                      {/* Transition Indicator Badge on left */}
+                      {clip.transition && (
+                        <span
+                          className="px-1 py-0.2 rounded-xs bg-amber-400/30 text-amber-900 dark:text-amber-200 text-[8px] font-mono mr-1 shrink-0 flex items-center gap-0.5"
+                          title={`Transition: ${clip.transition.type} (${clip.transition.duration}s)`}
+                        >
+                          <Layers className="w-2 h-2" />
+                          <span>{clip.transition.type}</span>
+                        </span>
+                      )}
+
                       <span className="font-medium truncate text-[11px] pointer-events-none px-1">
-                        {clip.id}
+                        {clipLabel}
                       </span>
+
+                      {/* Audio Ducking Badge */}
+                      {clip.audioDucking?.enabled && (
+                        <span className="text-[8px] font-mono bg-blue-500/20 text-blue-900 dark:text-blue-200 px-1 py-0.2 rounded-xs mr-1 shrink-0">
+                          -14dB Duck
+                        </span>
+                      )}
+
+                      {/* Color Grade Badge */}
+                      {clip.colorFilter && clip.colorFilter !== 'none' && (
+                        <span className="text-[8px] font-mono bg-purple-500/20 text-purple-900 dark:text-purple-200 px-1 py-0.2 rounded-xs mr-1 shrink-0">
+                          🎨 {clip.colorFilter}
+                        </span>
+                      )}
+
                       <span className="font-mono text-[9px] opacity-75 truncate pointer-events-none px-1">
                         {clip.timelineDuration.toFixed(1)}s
                       </span>

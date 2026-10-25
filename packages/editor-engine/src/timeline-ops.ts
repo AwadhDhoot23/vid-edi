@@ -87,6 +87,26 @@ export function getActiveClipAtTime(
 }
 
 /**
+ * Maps a source media timestamp to the corresponding timeline timestamp.
+ * Returns null if the source time is not present on any active video track (e.g. deleted).
+ */
+export function getTimelineTimeFromSourceTime(
+  tracks: Track[],
+  sourceTime: number
+): number | null {
+  const videoTracks = tracks.filter((t) => t.type === 'video');
+  for (const track of videoTracks) {
+    for (const clip of track.clips) {
+      if (sourceTime >= clip.sourceStart && sourceTime <= clip.sourceEnd) {
+        const offset = (sourceTime - clip.sourceStart) / clip.playbackRate;
+        return clip.timelineStart + offset;
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Finds the start timestamp of the next clip after a gap on video tracks.
  */
 export function getNextClipStartTime(
@@ -274,3 +294,86 @@ export function removeSegmentFromTracks(
   });
 }
 
+/**
+ * Slices out a segment specified by source media timestamps [sourceStart, sourceEnd],
+ * translating it into the current timeline positions of clips and rippling subsequent footage.
+ */
+export function removeSourceSegmentFromTracks(
+  tracks: Track[],
+  sourceStart: number,
+  sourceEnd: number,
+  ripple = true
+): Track[] {
+  if (sourceStart >= sourceEnd || sourceStart < 0) return tracks;
+
+  let currentTracks = tracks;
+  const videoTracks = tracks.filter((t) => t.type === 'video');
+
+  for (const track of videoTracks) {
+    for (const clip of track.clips) {
+      const overlapStart = Math.max(clip.sourceStart, sourceStart);
+      const overlapEnd = Math.min(clip.sourceEnd, sourceEnd);
+
+      if (overlapStart < overlapEnd) {
+        const tlStart = clip.timelineStart + (overlapStart - clip.sourceStart) / clip.playbackRate;
+        const tlEnd = clip.timelineStart + (overlapEnd - clip.sourceStart) / clip.playbackRate;
+
+        currentTracks = removeSegmentFromTracks(currentTracks, tlStart, tlEnd, ripple);
+        return currentTracks;
+      }
+    }
+  }
+
+  return currentTracks;
+}
+
+/**
+ * Reorders clips in a track by moving a clip from fromIndex to toIndex.
+ * Sequentially recalculates timelineStart with magnet ripple snapping.
+ */
+export function reorderTrackClips(
+  clips: Clip[],
+  fromIndex: number,
+  toIndex: number
+): Clip[] {
+  if (
+    fromIndex < 0 ||
+    fromIndex >= clips.length ||
+    toIndex < 0 ||
+    toIndex >= clips.length ||
+    fromIndex === toIndex
+  ) {
+    return clips;
+  }
+
+  const updated = [...clips];
+  const [movedClip] = updated.splice(fromIndex, 1);
+  if (!movedClip) return clips;
+  updated.splice(toIndex, 0, movedClip);
+
+  // Magnet ripple re-calculation: stack sequentially from 0 or preserve starting offset
+  let currentStart = 0;
+  return updated.map((clip) => {
+    const recalculated = {
+      ...clip,
+      timelineStart: currentStart,
+    };
+    currentStart += clip.timelineDuration;
+    return recalculated;
+  });
+}
+
+/**
+ * Appends or places a clip onto a specific track.
+ */
+export function addClipToTrackOps(
+  tracks: Track[],
+  trackId: string,
+  newClip: Clip
+): Track[] {
+  return tracks.map((track) => {
+    if (track.id !== trackId) return track;
+    const updatedClips = [...track.clips, newClip];
+    return { ...track, clips: updatedClips };
+  });
+}
