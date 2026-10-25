@@ -9,6 +9,10 @@ import {
   Undo2,
   Redo2,
   Layers,
+  GripVertical,
+  Magnet,
+  MoveHorizontal,
+  Zap,
 } from 'lucide-react';
 import { useTimelineStore } from '@vid-edi/editor-engine';
 import { Button, formatSecondsToTimecode } from '@vid-edi/ui';
@@ -17,6 +21,7 @@ import type { Track, Clip } from '@vid-edi/shared-types';
 export function TimelineView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoomLevel, setZoomLevel] = useState(1); // 1x to 4x zoom
+  const [interactionMode, setInteractionMode] = useState<'reorder' | 'free'>('reorder');
   const [draggedClipInfo, setDraggedClipInfo] = useState<{
     clipId: string;
     trackId: string;
@@ -25,10 +30,24 @@ export function TimelineView() {
     currentX: number;
   } | null>(null);
 
+  const [snapGuide, setSnapGuide] = useState<{
+    timeSec: number;
+    pixelX: number;
+    label: string;
+  } | null>(null);
+
+  const [reorderGhost, setReorderGhost] = useState<{
+    x: number;
+    y: number;
+    name: string;
+    duration: number;
+  } | null>(null);
+
   const [insertionIndicator, setInsertionIndicator] = useState<{
     trackId: string;
     targetIndex: number;
     indicatorPx: number;
+    label?: string;
   } | null>(null);
 
   const {
@@ -128,6 +147,62 @@ export function TimelineView() {
     setCurrentTime(Math.max(0, Math.min(clickedSeconds, totalDuration)));
   };
 
+  const findSnapTarget = (
+    targetSec: number,
+    excludeClipId?: string,
+    thresholdPx = 14
+  ): { snappedSec: number; guideLabel: string } | null => {
+    const thresholdSec = thresholdPx / basePixelsPerSecond;
+    let closestDiff = Infinity;
+    let bestSnap: { snappedSec: number; guideLabel: string } | null = null;
+
+    // Check 0:00s
+    if (Math.abs(targetSec) <= thresholdSec) {
+      return { snappedSec: 0, guideLabel: 'Timeline Start (0:00.0s)' };
+    }
+
+    // Check playhead
+    if (Math.abs(targetSec - currentTime) <= thresholdSec) {
+      closestDiff = Math.abs(targetSec - currentTime);
+      bestSnap = {
+        snappedSec: currentTime,
+        guideLabel: `Playhead (${formatSecondsToTimecode(currentTime)})`,
+      };
+    }
+
+    // Check all clip boundaries across all tracks
+    for (const tr of timeline.tracks) {
+      for (const c of tr.clips) {
+        if (c.id === excludeClipId) continue;
+        const clipStart = c.timelineStart;
+        const clipEnd = c.timelineStart + c.timelineDuration;
+        const clipTitle = c.name ? (c.name.length > 12 ? c.name.slice(0, 10) + '…' : c.name) : 'Clip';
+
+        // Check snap to clipStart
+        const startDiff = Math.abs(targetSec - clipStart);
+        if (startDiff <= thresholdSec && startDiff < closestDiff) {
+          closestDiff = startDiff;
+          bestSnap = {
+            snappedSec: clipStart,
+            guideLabel: `Snapped to ${clipTitle} Start (${clipStart.toFixed(1)}s)`,
+          };
+        }
+
+        // Check snap to clipEnd
+        const endDiff = Math.abs(targetSec - clipEnd);
+        if (endDiff <= thresholdSec && endDiff < closestDiff) {
+          closestDiff = endDiff;
+          bestSnap = {
+            snappedSec: clipEnd,
+            guideLabel: `Snapped to ${clipTitle} End (${clipEnd.toFixed(1)}s)`,
+          };
+        }
+      }
+    }
+
+    return bestSnap;
+  };
+
   const handleTrimStart = (
     e: React.MouseEvent,
     clip: Clip,
@@ -147,19 +222,53 @@ export function TimelineView() {
       const deltaSec = deltaPx / basePixelsPerSecond;
 
       if (type === 'start') {
-        const newStart = Math.max(
-          0,
-          Math.min(initialSourceStart + deltaSec, initialSourceEnd - 0.5)
-        );
-        // ripple = false: left trim advances timelineStart, anchors right edge, leaves blank space on left
+        const tentativeTlStart = clip.timelineStart + deltaSec;
+        const snap = findSnapTarget(tentativeTlStart, clip.id);
+        let newStart: number;
+        if (snap) {
+          const snappedDelta = snap.snappedSec - clip.timelineStart;
+          newStart = Math.max(
+            0,
+            Math.min(initialSourceStart + snappedDelta * clip.playbackRate, initialSourceEnd - 0.5)
+          );
+          setSnapGuide({
+            timeSec: snap.snappedSec,
+            pixelX: snap.snappedSec * basePixelsPerSecond,
+            label: snap.guideLabel,
+          });
+        } else {
+          newStart = Math.max(
+            0,
+            Math.min(initialSourceStart + deltaSec * clip.playbackRate, initialSourceEnd - 0.5)
+          );
+          setSnapGuide(null);
+        }
         trimClip(clip.id, newStart, initialSourceEnd, false, false);
       } else {
+        const tentativeTlEnd =
+          clip.timelineStart + (initialSourceEnd + deltaSec * clip.playbackRate - clip.sourceStart) / clip.playbackRate;
+        const snap = findSnapTarget(tentativeTlEnd, clip.id);
+        let newEnd: number;
         const maxSourceDuration = activeSource?.duration ?? Infinity;
-        const newEnd = Math.max(
-          initialSourceStart + 0.5,
-          Math.min(maxSourceDuration, initialSourceEnd + deltaSec)
-        );
-        // ripple = false: right trim shrinks right edge without force-shifting downstream clips
+
+        if (snap) {
+          const snappedDur = snap.snappedSec - clip.timelineStart;
+          newEnd = Math.max(
+            initialSourceStart + 0.5,
+            Math.min(maxSourceDuration, clip.sourceStart + snappedDur * clip.playbackRate)
+          );
+          setSnapGuide({
+            timeSec: snap.snappedSec,
+            pixelX: snap.snappedSec * basePixelsPerSecond,
+            label: snap.guideLabel,
+          });
+        } else {
+          newEnd = Math.max(
+            initialSourceStart + 0.5,
+            Math.min(maxSourceDuration, initialSourceEnd + deltaSec * clip.playbackRate)
+          );
+          setSnapGuide(null);
+        }
         trimClip(clip.id, initialSourceStart, newEnd, false, false);
       }
     };
@@ -167,6 +276,7 @@ export function TimelineView() {
     const onMouseUp = () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      setSnapGuide(null);
       if (hasMoved) {
         commitHistorySnapshot(preDragSnapshot);
       }
@@ -176,7 +286,7 @@ export function TimelineView() {
     window.addEventListener('mouseup', onMouseUp);
   };
 
-  // Direct Pointer Clip Drag: allows free horizontal positioning on any track, plus reorder on Video 1
+  // Direct Pointer Clip Drag: supports Magnetic Reordering with Small Blocks & Free Move with Snap Guidelines
   const handleClipDragStart = (
     e: React.PointerEvent,
     track: Track,
@@ -188,7 +298,7 @@ export function TimelineView() {
     const initialX = e.clientX;
     const initialTimelineStart = clip.timelineStart;
     let isDragging = false;
-    let mode: 'move' | 'reorder' = 'move';
+    let finalFreeStart = initialTimelineStart;
 
     const onPointerMove = (moveEv: PointerEvent) => {
       const deltaX = moveEv.clientX - initialX;
@@ -207,79 +317,100 @@ export function TimelineView() {
 
       setDraggedClipInfo((prev) => (prev ? { ...prev, currentX: moveEv.clientX } : null));
 
-      const deltaSec = deltaX / basePixelsPerSecond;
-      let targetStart = Math.max(0, initialTimelineStart + deltaSec);
+      // CASE 1: REORDER MODE (Clips become compact Small Blocks, dropped between clips without collision)
+      if (interactionMode === 'reorder' && track.clips.length > 1) {
+        setReorderGhost({
+          x: moveEv.clientX,
+          y: moveEv.clientY,
+          name: clip.name || clip.id,
+          duration: clip.timelineDuration,
+        });
 
-      // Magnet snap to 0s
-      if (targetStart < 0.25) {
-        targetStart = 0;
-      }
-      // Magnet snap to playhead currentTime
-      if (Math.abs(targetStart - currentTime) < 0.25) {
-        targetStart = currentTime;
-      }
-
-      // Check if reordering between multiple clips on Video 1 track
-      if (track.type === 'video' && track.clips.length > 1) {
-        const targetTimelineX =
-          moveEv.clientX -
-          (containerRef.current?.getBoundingClientRect().left ?? 0) +
-          (containerRef.current?.scrollLeft ?? 0);
-        const targetSec = targetTimelineX / basePixelsPerSecond;
+        const containerLeft = containerRef.current?.getBoundingClientRect().left ?? 0;
+        const scrollLeft = containerRef.current?.scrollLeft ?? 0;
+        const targetTimelineX = moveEv.clientX - containerLeft + scrollLeft;
 
         let candidateIndex = 0;
         let indicatorPx = 0;
+        let slotLabel = 'Move to Start';
+
         for (let i = 0; i < track.clips.length; i++) {
           const c = track.clips[i];
           if (!c) continue;
-          const midpoint = c.timelineStart + c.timelineDuration / 2;
-          if (targetSec > midpoint) {
-            candidateIndex = i + 1;
-            indicatorPx = (c.timelineStart + c.timelineDuration) * basePixelsPerSecond;
-          } else {
+          const midpoint = (c.timelineStart + c.timelineDuration / 2) * basePixelsPerSecond;
+          if (targetTimelineX < midpoint) {
+            candidateIndex = i;
             indicatorPx = c.timelineStart * basePixelsPerSecond;
+            slotLabel = i === 0 ? 'Move to Sequence Start' : `Slot #${i + 1}`;
             break;
+          } else {
+            candidateIndex = i;
+            indicatorPx = (c.timelineStart + c.timelineDuration) * basePixelsPerSecond;
+            slotLabel = i === track.clips.length - 1 ? 'Move to Sequence End' : `Slot #${i + 2}`;
           }
         }
 
         const safeIndex = Math.min(candidateIndex, track.clips.length - 1);
-        if (Math.abs(fromIndex - safeIndex) >= 1) {
-          mode = 'reorder';
-          setInsertionIndicator({
-            trackId: track.id,
-            targetIndex: safeIndex,
-            indicatorPx,
-          });
-          return;
-        }
+        setInsertionIndicator({
+          trackId: track.id,
+          targetIndex: safeIndex,
+          indicatorPx,
+          label: slotLabel,
+        });
+        return;
       }
 
-      // Default: free move mode
-      mode = 'move';
+      // CASE 2: FREE PLACEMENT MODE (Magnetic Snap Guidelines on start, end, playhead, 0s)
+      setReorderGhost(null);
       setInsertionIndicator(null);
+
+      const deltaSec = deltaX / basePixelsPerSecond;
+      let tentativeStart = Math.max(0, initialTimelineStart + deltaSec);
+
+      // Check snap on start edge
+      const snapStart = findSnapTarget(tentativeStart, clip.id);
+      // Check snap on right edge
+      const snapEnd = findSnapTarget(tentativeStart + clip.timelineDuration, clip.id);
+
+      if (snapStart) {
+        tentativeStart = snapStart.snappedSec;
+        setSnapGuide({
+          timeSec: snapStart.snappedSec,
+          pixelX: snapStart.snappedSec * basePixelsPerSecond,
+          label: snapStart.guideLabel,
+        });
+      } else if (snapEnd) {
+        tentativeStart = Math.max(0, snapEnd.snappedSec - clip.timelineDuration);
+        setSnapGuide({
+          timeSec: snapEnd.snappedSec,
+          pixelX: snapEnd.snappedSec * basePixelsPerSecond,
+          label: snapEnd.guideLabel,
+        });
+      } else {
+        setSnapGuide(null);
+      }
+
+      finalFreeStart = tentativeStart;
     };
 
-    const onPointerUp = (upEv: PointerEvent) => {
+    const onPointerUp = () => {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
 
       if (isDragging) {
-        if (mode === 'reorder' && insertionIndicator) {
+        if (interactionMode === 'reorder' && insertionIndicator) {
           if (fromIndex !== insertionIndicator.targetIndex) {
             reorderClips(track.id, fromIndex, insertionIndicator.targetIndex);
           }
         } else {
-          const deltaX = upEv.clientX - initialX;
-          const deltaSec = deltaX / basePixelsPerSecond;
-          let finalStart = Math.max(0, initialTimelineStart + deltaSec);
-          if (finalStart < 0.2) finalStart = 0;
-          if (Math.abs(finalStart - currentTime) < 0.25) finalStart = currentTime;
-          moveClip(clip.id, Number(finalStart.toFixed(2)));
+          moveClip(clip.id, Number(finalFreeStart.toFixed(2)));
         }
       }
 
       setDraggedClipInfo(null);
       setInsertionIndicator(null);
+      setReorderGhost(null);
+      setSnapGuide(null);
     };
 
     window.addEventListener('pointermove', onPointerMove);
@@ -320,6 +451,36 @@ export function TimelineView() {
           <span className="text-[var(--text-secondary)] font-mono">
             {formatSecondsToTimecode(currentTime)} / {formatSecondsToTimecode(totalDuration)}
           </span>
+
+          {/* Mode Toggle: Reorder Blocks vs Free Placement */}
+          <div className="ml-2 flex items-center gap-0.5 bg-[var(--bg-elevated)] p-0.5 rounded-lg border border-[var(--border-subtle)]">
+            <button
+              type="button"
+              onClick={() => setInteractionMode('reorder')}
+              className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors flex items-center gap-1 cursor-pointer ${
+                interactionMode === 'reorder'
+                  ? 'bg-[var(--accent-primary)] text-white shadow-xs font-semibold'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Magnetic Reorder Mode: Drag clips as compact blocks to reorder sequence without collision"
+            >
+              <Magnet className="w-3 h-3" />
+              <span>Reorder Blocks</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setInteractionMode('free')}
+              className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors flex items-center gap-1 cursor-pointer ${
+                interactionMode === 'free'
+                  ? 'bg-[var(--accent-primary)] text-white shadow-xs font-semibold'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Free Placement Mode: Move clips freely with magnetic snapping alignment line"
+            >
+              <MoveHorizontal className="w-3 h-3" />
+              <span>Free Placement</span>
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -461,12 +622,29 @@ export function TimelineView() {
               <div className="w-[1.5px] h-full bg-[var(--accent-primary)] mx-auto shadow-xs" />
             </div>
 
-            {/* Visual Reorder Drop Insertion Guide Line (Task R13) */}
+            {/* Magnetic Snapping Guideline (Full-height cyan line across all tracks with badge) */}
+            {snapGuide && (
+              <div
+                className="absolute top-0 bottom-0 w-[2px] bg-cyan-400 dark:bg-cyan-300 z-45 pointer-events-none shadow-[0_0_10px_rgba(6,182,212,0.95)]"
+                style={{ left: `${snapGuide.pixelX}px`, transform: 'translateX(-50%)' }}
+              >
+                <div className="absolute top-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-cyan-500 text-black font-semibold text-[10px] whitespace-nowrap shadow-lg flex items-center gap-1 z-50">
+                  <Magnet className="w-2.5 h-2.5" />
+                  <span>{snapGuide.label}</span>
+                </div>
+                <div className="w-2 h-2 bg-cyan-400 rotate-45 mx-auto -mt-1 shadow-xs" />
+              </div>
+            )}
+
+            {/* Visual Reorder Drop Insertion Guide Line */}
             {insertionIndicator && (
               <div
-                className="absolute top-6 bottom-0 w-1 bg-emerald-400 z-40 pointer-events-none shadow-[0_0_8px_rgba(52,211,153,0.8)] flex flex-col justify-between items-center transition-all duration-75"
+                className="absolute top-6 bottom-0 w-1.5 bg-emerald-400 z-40 pointer-events-none shadow-[0_0_10px_rgba(52,211,153,0.9)] flex flex-col justify-between items-center transition-all duration-75"
                 style={{ left: `${insertionIndicator.indicatorPx}px`, transform: 'translateX(-50%)' }}
               >
+                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-emerald-500 text-white font-bold text-[9px] whitespace-nowrap shadow-md">
+                  {insertionIndicator.label || `Drop Slot #${insertionIndicator.targetIndex + 1}`}
+                </div>
                 <div className="w-2.5 h-2.5 bg-emerald-400 rotate-45 -mt-1 shadow-xs" />
                 <div className="w-2.5 h-2.5 bg-emerald-400 rotate-45 -mb-1 shadow-xs" />
               </div>
@@ -562,6 +740,14 @@ export function TimelineView() {
                         </span>
                       )}
 
+                      {/* Clip Custom Playback Speed Badge */}
+                      {clip.playbackRate && clip.playbackRate !== 1 && (
+                        <span className="text-[8px] font-mono bg-amber-500/25 text-amber-900 dark:text-amber-200 px-1 py-0.2 rounded-xs font-bold mr-1 shrink-0 flex items-center gap-0.5">
+                          <Zap className="w-2 h-2 text-amber-500" />
+                          <span>{clip.playbackRate}x</span>
+                        </span>
+                      )}
+
                       <span className="font-mono text-[9px] opacity-75 truncate pointer-events-none px-1">
                         {clip.timelineDuration.toFixed(1)}s
                       </span>
@@ -584,6 +770,20 @@ export function TimelineView() {
           </div>
         </div>
       </div>
+
+      {/* Floating Small Block Ghost Card while dragging in Reorder mode */}
+      {reorderGhost && (
+        <div
+          className="fixed pointer-events-none z-50 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold text-xs shadow-2xl ring-2 ring-emerald-300 backdrop-blur-md -translate-x-1/2 -translate-y-1/2 scale-90"
+          style={{ left: `${reorderGhost.x}px`, top: `${reorderGhost.y}px` }}
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+          <span className="truncate max-w-[130px]">{reorderGhost.name}</span>
+          <span className="text-[10px] bg-emerald-800/80 px-1.5 py-0.5 rounded font-mono">
+            {reorderGhost.duration.toFixed(1)}s
+          </span>
+        </div>
+      )}
     </div>
   );
 }

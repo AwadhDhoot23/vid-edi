@@ -667,30 +667,67 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
   updateClipProperties: (clipId: string, updates: Partial<Clip>) => {
     const { timeline, past } = get();
     let found = false;
+    let isIntroTitleCard = false;
+    let durationDelta = 0;
+    let oldTitleEnd = 0;
+
+    for (const track of timeline.tracks) {
+      const foundClip = track.clips.find((c) => c.id === clipId);
+      if (foundClip) {
+        if (
+          (foundClip.titleCard !== undefined || foundClip.sourceId === 'overlay_title') &&
+          foundClip.timelineStart <= 0.05 &&
+          updates.timelineDuration !== undefined &&
+          updates.timelineDuration !== foundClip.timelineDuration
+        ) {
+          isIntroTitleCard = true;
+          oldTitleEnd = foundClip.timelineStart + foundClip.timelineDuration;
+          durationDelta = updates.timelineDuration - foundClip.timelineDuration;
+        }
+        break;
+      }
+    }
 
     const updatedTracks = timeline.tracks.map((track) => {
       const updatedClips = track.clips.map((clip) => {
-        if (clip.id !== clipId) return clip;
-        found = true;
-        return {
-          ...clip,
-          ...updates,
-          transform: updates.transform
-            ? { ...(clip.transform || { scale: 1, positionX: 0, positionY: 0, opacity: 1 }), ...updates.transform }
-            : clip.transform,
-          textOverlay: updates.textOverlay
-            ? ({ ...(clip.textOverlay || {}), ...updates.textOverlay } as TextOverlayConfig)
-            : clip.textOverlay,
-          titleCard: updates.titleCard
-            ? ({ ...(clip.titleCard || {}), ...updates.titleCard } as TitleCardConfig)
-            : clip.titleCard,
-          audioDucking: updates.audioDucking
-            ? { ...(clip.audioDucking || { enabled: true, duckingDb: -14 }), ...updates.audioDucking }
-            : clip.audioDucking,
-          transitions: updates.transitions
-            ? { ...(clip.transitions || {}), ...updates.transitions }
-            : clip.transitions,
-        };
+        if (clip.id === clipId) {
+          found = true;
+          let calculatedDuration = updates.timelineDuration ?? clip.timelineDuration;
+          if (updates.playbackRate !== undefined && updates.playbackRate > 0) {
+            calculatedDuration = (clip.sourceEnd - clip.sourceStart) / updates.playbackRate;
+          }
+
+          return {
+            ...clip,
+            ...updates,
+            timelineDuration: calculatedDuration,
+            transform: updates.transform
+              ? { ...(clip.transform || { scale: 1, positionX: 0, positionY: 0, opacity: 1 }), ...updates.transform }
+              : clip.transform,
+            textOverlay: updates.textOverlay
+              ? ({ ...(clip.textOverlay || {}), ...updates.textOverlay } as TextOverlayConfig)
+              : clip.textOverlay,
+            titleCard: updates.titleCard
+              ? ({ ...(clip.titleCard || {}), ...updates.titleCard } as TitleCardConfig)
+              : clip.titleCard,
+            audioDucking: updates.audioDucking
+              ? { ...(clip.audioDucking || { enabled: true, duckingDb: -14 }), ...updates.audioDucking }
+              : clip.audioDucking,
+            transitions: updates.transitions
+              ? { ...(clip.transitions || {}), ...updates.transitions }
+              : clip.transitions,
+          };
+        }
+
+        // If an Intro title card at 0:00 changed duration, shift downstream video clips
+        if (isIntroTitleCard && track.type === 'video' && clip.timelineStart >= oldTitleEnd - 0.2) {
+          return {
+            ...clip,
+            timelineStart: Math.max(0, Number((clip.timelineStart + durationDelta).toFixed(3))),
+          };
+        }
+
+        return clip;
       });
       return { ...track, clips: updatedClips };
     });

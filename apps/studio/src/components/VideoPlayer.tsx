@@ -17,8 +17,8 @@ import { Button, formatSecondsToTimecode } from '@vid-edi/ui';
 import {
   useTimelineStore,
   getActiveClipAtTime,
-  getNextClipStartTime,
 } from '@vid-edi/editor-engine';
+import { bgmSynth } from '../utils/bgm-synth';
 
 export function getFilterCss(filterName?: string): string {
   switch (filterName) {
@@ -42,109 +42,6 @@ export function getFilterCss(filterName?: string): string {
       return 'none';
   }
 }
-
-// Web Audio Synthesizer for 100% reliable, zero-CORS ambient background music with auto-ducking
-class WebAudioBgmSynth {
-  private ctx: AudioContext | null = null;
-  private gainNode: GainNode | null = null;
-  private isRunning = false;
-  private loopInterval: number | null = null;
-
-  start(presetId: string, baseVol: number, ducked: boolean) {
-    if (this.isRunning) {
-      this.updateVolume(baseVol, ducked);
-      return;
-    }
-
-    try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-      this.ctx = new AudioCtx();
-      this.gainNode = this.ctx.createGain();
-      const targetGain = baseVol * (ducked ? 0.2 : 0.8) * 0.12;
-      this.gainNode.gain.setValueAtTime(Math.max(0.001, targetGain), this.ctx.currentTime);
-      this.gainNode.connect(this.ctx.destination);
-      this.isRunning = true;
-
-      const chordFreqs = presetId.includes('synthwave')
-        ? [
-            [220, 261.63, 329.63],
-            [174.61, 220, 261.63],
-            [196, 246.94, 293.66],
-            [164.81, 207.65, 246.94],
-          ]
-        : [
-            [261.63, 329.63, 392.0],
-            [220.0, 261.63, 329.63],
-            [174.61, 220.0, 261.63],
-            [196.0, 246.94, 293.66],
-          ];
-
-      let chordIdx = 0;
-      const playChord = () => {
-        if (!this.ctx || !this.gainNode || !this.isRunning) return;
-        const freqs = chordFreqs[chordIdx % chordFreqs.length]!;
-        chordIdx++;
-
-        freqs.forEach((freq) => {
-          if (!this.ctx || !this.gainNode) return;
-          const osc = this.ctx.createOscillator();
-          const noteGain = this.ctx.createGain();
-          osc.type = presetId.includes('synthwave') ? 'sawtooth' : 'sine';
-          osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-
-          const filter = this.ctx.createBiquadFilter();
-          filter.type = 'lowpass';
-          filter.frequency.setValueAtTime(
-            presetId.includes('synthwave') ? 1100 : 750,
-            this.ctx.currentTime
-          );
-
-          noteGain.gain.setValueAtTime(0.001, this.ctx.currentTime);
-          noteGain.gain.exponentialRampToValueAtTime(0.18, this.ctx.currentTime + 0.35);
-          noteGain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 2.2);
-
-          osc.connect(filter);
-          filter.connect(noteGain);
-          noteGain.connect(this.gainNode);
-
-          osc.start();
-          osc.stop(this.ctx.currentTime + 2.3);
-        });
-      };
-
-      playChord();
-      this.loopInterval = window.setInterval(playChord, 2200);
-    } catch (e) {
-      console.warn('WebAudioBgmSynth error:', e);
-    }
-  }
-
-  updateVolume(baseVol: number, ducked: boolean) {
-    if (!this.ctx || !this.gainNode) return;
-    const targetGain = baseVol * (ducked ? 0.2 : 0.8) * 0.12;
-    this.gainNode.gain.setTargetAtTime(Math.max(0.0001, targetGain), this.ctx.currentTime, 0.1);
-  }
-
-  stop() {
-    this.isRunning = false;
-    if (this.loopInterval) {
-      clearInterval(this.loopInterval);
-      this.loopInterval = null;
-    }
-    if (this.ctx) {
-      try {
-        void this.ctx.close();
-      } catch {}
-      this.ctx = null;
-      this.gainNode = null;
-    }
-  }
-}
-
-const bgmSynth = new WebAudioBgmSynth();
 
 export function VideoPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -283,14 +180,16 @@ export function VideoPlayer() {
   const is916 = timeline.resolution.height > timeline.resolution.width;
   const is11 = timeline.resolution.width === timeline.resolution.height;
 
-  // Sync volume with HTML video element
+  // Sync volume with HTML video element with per-clip volume and strict [0, 1] range clamp
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    video.volume = isMuted ? 0 : volume;
+    const clipVol = activeClipInfo?.clip.volume ?? 1.0;
+    const effectiveVol = isMuted ? 0 : Math.min(1.0, Math.max(0, volume * clipVol));
+    video.volume = effectiveVol;
     video.muted = isMuted;
-  }, [volume, isMuted]);
+  }, [volume, isMuted, activeClipInfo?.clip.volume]);
 
   // Sync BGM audio with Web Audio Synth and HTML Audio element
   useEffect(() => {
@@ -305,13 +204,14 @@ export function VideoPlayer() {
     const hasSpeech = activeClipInfo !== null;
     const duckingEnabled = activeMusicClip.audioDucking?.enabled ?? true;
     const isDucked = hasSpeech && duckingEnabled;
-    const baseVol = (activeMusicClip.volume ?? 0.8) * (isMuted ? 0 : volume);
+    const baseVol = Math.min(1.0, Math.max(0, (activeMusicClip.volume ?? 0.8) * (isMuted ? 0 : volume)));
 
     // If sourcePath is a playable media blob or custom URL, try audio element first
     const audioUrl = activeMusicClip.sourcePath || (activeMusicClip.sourceId.startsWith('http') ? activeMusicClip.sourceId : null);
     if (audioUrl && bgmAudioRef.current) {
       const bgm = bgmAudioRef.current;
-      bgm.volume = isDucked ? baseVol * 0.2 : baseVol;
+      const targetBgmVol = isDucked ? baseVol * 0.2 : baseVol;
+      bgm.volume = Math.min(1.0, Math.max(0, targetBgmVol));
       if (bgm.paused) {
         bgm.play().catch(() => {
           // Fallback to Web Audio Synth if CORS or format fails
@@ -356,17 +256,20 @@ export function VideoPlayer() {
       const deltaSec = (now - lastTimestamp) / 1000;
       lastTimestamp = now;
 
-      const rate = playbackRate;
+      const globalRate = playbackRate;
       const currentTlTime = useTimelineStore.getState().currentTime;
       const activeInfo = getActiveClipAtTime(timeline.tracks, currentTlTime);
 
       if (activeInfo) {
+        const clipRate = activeInfo.clip.playbackRate || 1;
+        const effectiveRate = clipRate * globalRate;
+
         if (video.paused) {
           video.currentTime = activeInfo.sourceTime;
-          video.playbackRate = rate;
+          video.playbackRate = effectiveRate;
           void video.play().catch(() => {});
-        } else if (video.playbackRate !== rate) {
-          video.playbackRate = rate;
+        } else if (Math.abs(video.playbackRate - effectiveRate) > 0.01) {
+          video.playbackRate = effectiveRate;
         }
 
         // Only correct video time if drift exceeds 0.35s (e.g. from a click seek)
@@ -376,41 +279,34 @@ export function VideoPlayer() {
         }
 
         // Smoothly derive timeline time from video playback
-        const elapsedInClip = (video.currentTime - activeInfo.clip.sourceStart) / (activeInfo.clip.playbackRate || 1);
+        const elapsedInClip = (video.currentTime - activeInfo.clip.sourceStart) / clipRate;
         const derivedTlTime = activeInfo.clip.timelineStart + elapsedInClip;
+        const clipEndTime = activeInfo.clip.timelineStart + activeInfo.clip.timelineDuration;
 
-        // Clip boundary detection
+        // Clip boundary detection: when clip finishes, pause video and smoothly transition into gap/next clip
         if (
           video.currentTime >= activeInfo.clip.sourceEnd - 0.04 ||
-          derivedTlTime >= activeInfo.clip.timelineStart + activeInfo.clip.timelineDuration
+          derivedTlTime >= clipEndTime - 0.02
         ) {
-          const nextStart = getNextClipStartTime(
-            timeline.tracks,
-            activeInfo.clip.timelineStart + activeInfo.clip.timelineDuration
-          );
-          if (nextStart !== null && nextStart < timeline.duration) {
-            setCurrentTime(nextStart);
-            const nextClip = getActiveClipAtTime(timeline.tracks, nextStart);
-            if (nextClip) {
-              video.currentTime = nextClip.sourceTime;
-            } else {
-              video.pause();
-            }
-          } else {
+          if (!video.paused) video.pause();
+
+          if (clipEndTime >= timeline.duration) {
             setCurrentTime(timeline.duration);
             setIsPlaying(false);
             return;
           }
+          // Smoothly advance playhead so gaps, title cards, and overlays are rendered without skipping
+          setCurrentTime(clipEndTime);
         } else {
           setCurrentTime(Math.min(timeline.duration, Math.max(0, derivedTlTime)));
         }
       } else {
-        // No video clip (e.g. intro title card at 0:00 or timeline gap)
+        // No video clip (e.g. intro title card at 0:00, blank gap, or outro)
         if (!video.paused) {
           video.pause();
         }
 
-        const newTlTime = currentTlTime + deltaSec * rate;
+        const newTlTime = currentTlTime + deltaSec * globalRate;
         if (newTlTime >= timeline.duration) {
           setCurrentTime(timeline.duration);
           setIsPlaying(false);
@@ -421,7 +317,8 @@ export function VideoPlayer() {
         const nextInfo = getActiveClipAtTime(timeline.tracks, newTlTime);
         if (nextInfo) {
           video.currentTime = nextInfo.sourceTime;
-          video.playbackRate = rate;
+          const nextClipRate = nextInfo.clip.playbackRate || 1;
+          video.playbackRate = nextClipRate * globalRate;
           void video.play().catch(() => {});
         }
         setCurrentTime(newTlTime);
@@ -434,10 +331,8 @@ export function VideoPlayer() {
     return () => cancelAnimationFrame(animationFrameId);
   }, [isPlaying, timeline.tracks, timeline.duration, playbackRate, setCurrentTime, setIsPlaying]);
 
-  const stepFrame = (frames: number) => {
-    const fps = timeline.fps || 30;
-    const delta = frames / fps;
-    const nextTime = Math.max(0, Math.min(currentTime + delta, timeline.duration));
+  const seekDelta = (seconds: number) => {
+    const nextTime = Math.max(0, Math.min(currentTime + seconds, timeline.duration));
     setCurrentTime(nextTime);
 
     const targetClip = getActiveClipAtTime(timeline.tracks, nextTime);
@@ -674,9 +569,9 @@ export function VideoPlayer() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => stepFrame(-1)}
+            onClick={() => seekDelta(-5)}
             disabled={!activeSource}
-            title="Step back 1 frame (Left Arrow = 5s seek)"
+            title="Rewind 5s (Left Arrow)"
             className="w-8 h-8 cursor-pointer"
           >
             <SkipBack className="w-4 h-4" />
@@ -696,9 +591,9 @@ export function VideoPlayer() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => stepFrame(1)}
+            onClick={() => seekDelta(5)}
             disabled={!activeSource}
-            title="Step forward 1 frame (Right Arrow = 5s seek)"
+            title="Forward 5s (Right Arrow)"
             className="w-8 h-8 cursor-pointer"
           >
             <SkipForward className="w-4 h-4" />

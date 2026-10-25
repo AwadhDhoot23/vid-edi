@@ -16,6 +16,7 @@ import {
   Play,
   Volume2,
   Check,
+  Square,
 } from 'lucide-react';
 import { Button } from '@vid-edi/ui';
 import { useTimelineStore } from '@vid-edi/editor-engine';
@@ -23,6 +24,7 @@ import { inspectBrowserVideoFile } from '@vid-edi/media-processing';
 import type { ProjectAsset, Transition } from '@vid-edi/shared-types';
 import { TranscriptPanel } from './TranscriptPanel';
 import { AIAssistantPanel } from './AIAssistantPanel';
+import { bgmSynth } from '../utils/bgm-synth';
 
 export type ActivityTab = 'media' | 'transcript' | 'text' | 'filters' | 'transitions' | 'audio' | 'ai';
 
@@ -103,27 +105,27 @@ export const TRANSITION_PRESETS: { type: Transition['type']; name: string; desc:
 export const BGM_SAMPLES = [
   {
     id: 'bgm_lofi_chill',
-    name: 'Lofi Coffee Beat',
-    author: 'Royalty Free',
+    name: '☕ Lofi Coffee Beat',
+    author: 'Warm Rhodes jazz chords & vinyl texture',
     duration: 30,
-    bpm: 82,
-    audioUrl: 'https://cdn.freesound.org/previews/573/573381_11861866-lq.mp3',
+    bpm: 80,
+    audioUrl: '',
+  },
+  {
+    id: 'bgm_synthwave_energy',
+    name: '⚡ 80s Synthwave Drive',
+    author: 'Driving saw bassline & resonant arps',
+    duration: 24,
+    bpm: 120,
+    audioUrl: '',
   },
   {
     id: 'bgm_ambient_tech',
-    name: 'Silicon Horizon Ambient',
-    author: 'Creative Commons',
-    duration: 25,
-    bpm: 110,
-    audioUrl: 'https://cdn.freesound.org/previews/612/612610_11861866-lq.mp3',
-  },
-  {
-    id: 'bgm_upbeat_vlog',
-    name: 'Creator Pulse Synth',
-    author: 'Royalty Free',
-    duration: 20,
-    bpm: 124,
-    audioUrl: 'https://cdn.freesound.org/previews/615/615099_11861866-lq.mp3',
+    name: '✨ Silicon Horizon Ambient',
+    author: 'Crystalline bell plucks & lush pads',
+    duration: 28,
+    bpm: 72,
+    audioUrl: '',
   },
 ];
 
@@ -258,9 +260,9 @@ export function ActivityDock() {
     });
   };
 
-  const playBgmPreview = (url: string, id: string) => {
+  const playBgmPreview = (id: string) => {
     if (playingAudioId === id) {
-      audioPreviewRef.current?.pause();
+      bgmSynth.stop();
       setPlayingAudioId(null);
       return;
     }
@@ -268,11 +270,8 @@ export function ActivityDock() {
     if (audioPreviewRef.current) {
       audioPreviewRef.current.pause();
     }
-    const audio = new Audio(url);
-    audioPreviewRef.current = audio;
-    audio.play().catch(() => {});
+    bgmSynth.start(id, 0.85, false);
     setPlayingAudioId(id);
-    audio.onended = () => setPlayingAudioId(null);
   };
 
   const navItems = [
@@ -832,26 +831,38 @@ export function ActivityDock() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => playBgmPreview(bgm.audioUrl, bgm.id)}
-                          className="w-7 h-7 rounded-full bg-[var(--bg-base)] hover:bg-[var(--accent-primary)] hover:text-white flex items-center justify-center transition-colors text-[var(--text-secondary)]"
-                          title="Preview Track"
+                          onClick={() => playBgmPreview(bgm.id)}
+                          className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                            playingAudioId === bgm.id
+                              ? 'bg-rose-500 text-white shadow-xs'
+                              : 'bg-[var(--bg-base)] hover:bg-[var(--accent-primary)] hover:text-white text-[var(--text-secondary)]'
+                          }`}
+                          title={playingAudioId === bgm.id ? 'Stop Preview' : 'Preview Track'}
                         >
-                          <Play className="w-3.5 h-3.5 ml-0.5" />
+                          {playingAudioId === bgm.id ? (
+                            <Square className="w-3 h-3 fill-current" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5 ml-0.5" />
+                          )}
                         </button>
                       </div>
 
                       <button
                         type="button"
                         onClick={() => {
+                          if (playingAudioId) {
+                            bgmSynth.stop();
+                            setPlayingAudioId(null);
+                          }
                           addAssetToTimeline({
                             id: bgm.id,
                             name: bgm.name,
                             type: 'audio',
-                            path: bgm.audioUrl,
+                            path: bgm.id,
                             duration: bgm.duration,
                           });
                         }}
-                        className="w-full py-1 text-[11px] rounded-lg bg-[var(--accent-primary)]/15 hover:bg-[var(--accent-primary)] text-[var(--accent-primary)] hover:text-white font-medium transition-colors flex items-center justify-center gap-1"
+                        className="w-full py-1 text-[11px] rounded-lg bg-[var(--accent-primary)]/15 hover:bg-[var(--accent-primary)] text-[var(--accent-primary)] hover:text-white font-medium transition-colors flex items-center justify-center gap-1 cursor-pointer"
                       >
                         <Volume2 className="w-3 h-3" />
                         <span>Add BGM to Music Track</span>

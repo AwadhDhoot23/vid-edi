@@ -351,12 +351,13 @@ export function reorderTrackClips(
   if (!movedClip) return clips;
   updated.splice(toIndex, 0, movedClip);
 
-  // Magnet ripple re-calculation: stack sequentially from 0 or preserve starting offset
-  let currentStart = 0;
+  // Magnet ripple re-calculation: stack sequentially from track initial offset
+  const initialOffset = clips.length > 0 ? (clips[0]?.timelineStart ?? 0) : 0;
+  let currentStart = initialOffset;
   return updated.map((clip) => {
     const recalculated = {
       ...clip,
-      timelineStart: currentStart,
+      timelineStart: Number(currentStart.toFixed(3)),
     };
     currentStart += clip.timelineDuration;
     return recalculated;

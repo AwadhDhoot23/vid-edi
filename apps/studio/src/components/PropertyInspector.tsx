@@ -174,9 +174,35 @@ export function PropertyInspector() {
                   </select>
                 </div>
 
-                {/* Playback Speed */}
+                {/* Video Clip Audio Volume */}
                 <div className="flex flex-col gap-1.5">
-                  <span className="font-medium text-[var(--text-secondary)]">Speed</span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-[var(--text-secondary)]">Clip Audio Volume</span>
+                    <span className="font-mono text-[11px] text-[var(--text-primary)]">
+                      {Math.round((selectedClip.volume ?? 1.0) * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1.0"
+                    step="0.05"
+                    value={selectedClip.volume ?? 1.0}
+                    onChange={(e) =>
+                      updateClipProperties(selectedClip!.id, {
+                        volume: parseFloat(e.target.value),
+                      })
+                    }
+                    className="w-full accent-[var(--accent-primary)] h-1.5 rounded-lg bg-[var(--border-strong)] cursor-pointer"
+                  />
+                </div>
+
+                {/* Clip Playback Speed */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-[var(--text-secondary)]">Clip Speed</span>
+                    <span className="text-[10px] text-[var(--text-tertiary)]">Alters timeline duration</span>
+                  </div>
                   <div className="grid grid-cols-4 gap-1">
                     {[0.5, 1.0, 1.5, 2.0].map((rate) => (
                       <button
@@ -186,8 +212,8 @@ export function PropertyInspector() {
                           updateClipProperties(selectedClip!.id, { playbackRate: rate })
                         }
                         className={`py-1 rounded-md border text-center font-mono text-[11px] transition-colors cursor-pointer ${
-                          selectedClip?.playbackRate === rate
-                            ? 'bg-[var(--accent-primary)] text-white border-[var(--accent-primary)]'
+                          (selectedClip?.playbackRate || 1.0) === rate
+                            ? 'bg-[var(--accent-primary)] text-white border-[var(--accent-primary)] font-bold shadow-xs'
                             : 'bg-[var(--bg-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                         }`}
                       >
@@ -492,7 +518,7 @@ export function PropertyInspector() {
                   <input
                     type="range"
                     min="0"
-                    max="2.0"
+                    max="1.0"
                     step="0.05"
                     value={selectedClip.volume ?? 1.0}
                     onChange={(e) =>
