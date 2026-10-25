@@ -95,4 +95,41 @@ describe('FFmpeg Command Compiler', () => {
     expect(parsed.app).toBe('Vid-Edi Studio');
     expect(parsed.timeline.tracks[0].clips.length).toBe(2);
   });
+
+  it('compiles clip speed, visual eq, color filters, and volume into FFmpeg filters', () => {
+    const styledTimeline: Timeline = {
+      ...sampleTimeline,
+      tracks: [
+        {
+          ...sampleTimeline.tracks[0]!,
+          clips: [
+            {
+              ...sampleTimeline.tracks[0]!.clips[0]!,
+              playbackRate: 1.5,
+              volume: 0.8,
+              brightness: 1.2,
+              contrast: 1.1,
+              saturation: 1.3,
+              colorFilter: 'teal-orange',
+            },
+          ],
+        },
+      ],
+    };
+
+    const res = compileTimelineToFFmpeg(styledTimeline, 'test.mp4', STANDARD_EXPORT_PRESETS[1]);
+
+    // Video speed: 1 / 1.5 = 0.6667
+    expect(res.filterComplex).toContain('setpts=0.6667*(PTS-STARTPTS)');
+    // Audio speed: atempo=1.50
+    expect(res.filterComplex).toContain('atempo=1.50');
+    // Volume: volume=0.80
+    expect(res.filterComplex).toContain('volume=0.80');
+    // Visual adjustments eq: brightness, contrast, saturation
+    expect(res.filterComplex).toContain('eq=brightness=0.10:contrast=1.10:saturation=1.30');
+    // Teal-Orange color grading filter
+    expect(res.filterComplex).toContain('colorchannelmixer=rr=1.2:bb=0.8,eq=contrast=1.2:saturation=1.3');
+    // Subtitles burn-in on Shorts preset
+    expect(res.filterComplex).toContain("subtitles='test.srt'");
+  });
 });

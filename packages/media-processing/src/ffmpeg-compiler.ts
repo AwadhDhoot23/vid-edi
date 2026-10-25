@@ -41,7 +41,35 @@ export const STANDARD_EXPORT_PRESETS: ExportPreset[] = [
 ];
 
 /**
+ * Translates studio color grade presets into native deterministic FFmpeg filter strings.
+ */
+export function getFFmpegFilterForPreset(filterName?: string): string {
+  switch (filterName) {
+    case 'warm-vintage':
+      return 'colorchannelmixer=rr=1.1:rg=0.1:rb=0:br=0:bg=0.1:bb=0.9,eq=saturation=1.2:contrast=1.05';
+    case 'teal-orange':
+      return 'colorchannelmixer=rr=1.2:bb=0.8,eq=contrast=1.2:saturation=1.3';
+    case 'noir-bw':
+      return 'hue=s=0,eq=contrast=1.3';
+    case 'cyberpunk':
+      return 'hue=h=180:s=1.8,eq=contrast=1.15';
+    case 'clean-pop':
+      return 'eq=contrast=1.1:saturation=1.25';
+    case 'kodak-35mm':
+      return 'colorchannelmixer=rr=1.05:rg=0.05:rb=0:bb=0.95,eq=saturation=1.15:contrast=1.12';
+    case 'bleach-bypass':
+      return 'eq=contrast=1.4:saturation=0.6';
+    case 'cool-slate':
+      return 'hue=h=190:s=0.8,eq=contrast=1.1';
+    default:
+      return '';
+  }
+}
+
+/**
  * Compiles a non-destructive multi-clip Timeline into a native deterministic FFmpeg filter_complex CLI command.
+ * Supports clip slicing, speed alteration (setpts/atempo), volume, brightness/contrast/saturation (eq),
+ * color grading filters, aspect ratio framing (16:9, 9:16, 1:1), and burned-in captions.
  */
 export function compileTimelineToFFmpeg(
   timeline: Timeline,
@@ -70,9 +98,49 @@ export function compileTimelineToFFmpeg(
     const aTag = `a${index}`;
     const start = Number(clip.sourceStart.toFixed(2));
     const end = Number(clip.sourceEnd.toFixed(2));
+    const speed = clip.playbackRate && clip.playbackRate > 0 ? clip.playbackRate : 1;
+    const vol = clip.volume !== undefined ? clip.volume : 1;
 
-    filterParts.push(`[0:v]trim=start=${start}:end=${end},setpts=PTS-STARTPTS[${vTag}]`);
-    filterParts.push(`[0:a]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS[${aTag}]`);
+    // 1. Video Filters: trim -> setpts (with speed) -> visual adjustments (eq) -> color filter
+    const vFilters: string[] = [`trim=start=${start}:end=${end}`];
+    if (speed !== 1) {
+      vFilters.push(`setpts=${Number((1 / speed).toFixed(4))}*(PTS-STARTPTS)`);
+    } else {
+      vFilters.push('setpts=PTS-STARTPTS');
+    }
+
+    // Visual adjustments: Brightness, Contrast, Saturation
+    const hasBrightness = clip.brightness !== undefined && Math.abs(clip.brightness - 1.0) > 0.01;
+    const hasContrast = clip.contrast !== undefined && Math.abs(clip.contrast - 1.0) > 0.01;
+    const hasSaturation = clip.saturation !== undefined && Math.abs(clip.saturation - 1.0) > 0.01;
+    if (hasBrightness || hasContrast || hasSaturation) {
+      const b = clip.brightness !== undefined ? ((clip.brightness - 1.0) * 0.5).toFixed(2) : '0';
+      const c = (clip.contrast ?? 1.0).toFixed(2);
+      const s = (clip.saturation ?? 1.0).toFixed(2);
+      vFilters.push(`eq=brightness=${b}:contrast=${c}:saturation=${s}`);
+    }
+
+    // Color grading preset filter
+    const filterPreset =
+      clip.colorFilter ||
+      (clip.effects?.find((e) => e.type === 'filter')?.params as { filterName?: string })?.filterName;
+    if (filterPreset && filterPreset !== 'none') {
+      const ffFilter = getFFmpegFilterForPreset(filterPreset);
+      if (ffFilter) vFilters.push(ffFilter);
+    }
+
+    filterParts.push(`[0:v]${vFilters.join(',')}[${vTag}]`);
+
+    // 2. Audio Filters: atrim -> asetpts -> atempo (speed) -> volume
+    const aFilters: string[] = [`atrim=start=${start}:end=${end}`, 'asetpts=PTS-STARTPTS'];
+    if (speed !== 1) {
+      aFilters.push(`atempo=${speed.toFixed(2)}`);
+    }
+    if (vol !== 1) {
+      aFilters.push(`volume=${vol.toFixed(2)}`);
+    }
+
+    filterParts.push(`[0:a]${aFilters.join(',')}[${aTag}]`);
     concatInputs.push(`[${vTag}][${aTag}]`);
   });
 
@@ -94,6 +162,15 @@ export function compileTimelineToFFmpeg(
       `[concatenated_v]scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080[cropped_v]`
     );
     finalVideoTag = '[cropped_v]';
+  }
+
+  // Burn captions if enabled in export preset
+  if (preset.burnCaptions) {
+    const srtFile = `${sourcePath.replace(/\.[^/.]+$/, '')}.srt`;
+    filterParts.push(
+      `${finalVideoTag}subtitles='${srtFile}':force_style='Fontname=Arial,Fontsize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3'[subbed_v]`
+    );
+    finalVideoTag = '[subbed_v]';
   }
 
   const filterComplex = filterParts.join('; ');
