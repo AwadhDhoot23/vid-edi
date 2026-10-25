@@ -693,12 +693,23 @@ export function ActivityDock() {
                 </span>
                 <div className="grid grid-cols-2 gap-2">
                   {FILTER_PRESETS.map((filter) => {
-                    const isSelected = activeFilter === filter.id;
+                    const currentClipFilter = selectedClipId
+                      ? timeline.tracks.flatMap((t) => t.clips).find((c) => c.id === selectedClipId)?.colorFilter
+                      : undefined;
+                    const isSelected = (currentClipFilter !== undefined ? currentClipFilter : (activeFilter || 'none')) === filter.id;
                     return (
                       <button
                         key={filter.id}
                         type="button"
-                        onClick={() => setActiveFilter(filter.id)}
+                        onClick={() => {
+                          setActiveFilter(filter.id);
+                          const targetClipId =
+                            selectedClipId ||
+                            timeline.tracks.find((t) => t.type === 'video')?.clips[0]?.id;
+                          if (targetClipId) {
+                            updateClipProperties(targetClipId, { colorFilter: filter.id });
+                          }
+                        }}
                         className={`p-2 rounded-xl border flex flex-col gap-1.5 text-left transition-all cursor-pointer ${
                           isSelected
                             ? 'border-[var(--accent-primary)] ring-2 ring-[var(--accent-primary)]/20 bg-[var(--bg-elevated)]'
@@ -784,6 +795,35 @@ export function ActivityDock() {
                 </span>
 
                 <div className="flex flex-col gap-2">
+                  {/* Clear Transitions Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetClipId =
+                        selectedClipId ||
+                        timeline.tracks.find((t) => t.type === 'video')?.clips[0]?.id;
+                      if (!targetClipId) return;
+                      updateClipProperties(targetClipId, {
+                        transitions: undefined,
+                        transition: undefined,
+                      });
+                    }}
+                    className="p-2 rounded-xl border border-dashed border-[var(--border-strong)] hover:border-rose-400 bg-[var(--bg-elevated)]/60 text-left transition-all cursor-pointer flex items-center justify-between group"
+                    title="Remove all transitions from clip"
+                  >
+                    <div>
+                      <div className="text-xs font-semibold text-[var(--text-secondary)] group-hover:text-rose-400">
+                        🚫 Clear All Transitions
+                      </div>
+                      <div className="text-[10px] text-[var(--text-tertiary)]">
+                        Standard cut with no animated transition
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[var(--bg-base)] text-[var(--text-tertiary)] group-hover:text-rose-400">
+                      Clear
+                    </span>
+                  </button>
+
                   {TRANSITION_PRESETS.map((trans) => (
                     <button
                       key={trans.type}
@@ -812,7 +852,7 @@ export function ActivityDock() {
                         };
                         updateClipProperties(targetClipId, {
                           transitions: newTransitions,
-                          transition: { type: trans.type, duration: transitionDuration },
+                          transition: newTransitions.in || undefined,
                         });
                       }}
                       className="p-2.5 rounded-xl border border-[var(--border-subtle)] hover:border-[var(--accent-primary)] bg-[var(--bg-elevated)] flex items-center justify-between text-left transition-all cursor-pointer group"

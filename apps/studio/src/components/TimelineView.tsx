@@ -75,6 +75,19 @@ export function TimelineView() {
   const basePixelsPerSecond = 20 * zoomLevel;
   const timelinePixelWidth = totalDuration * basePixelsPerSecond;
 
+  const REORDER_BLOCK_WIDTH = 130;
+  const REORDER_BLOCK_GAP = 8;
+  const REORDER_BLOCK_PITCH = REORDER_BLOCK_WIDTH + REORDER_BLOCK_GAP;
+  const maxClipsInAnyTrack = Math.max(
+    ...timeline.tracks.map((t) => t.clips.length),
+    1
+  );
+  const reorderPixelWidth = maxClipsInAnyTrack * REORDER_BLOCK_PITCH + 100;
+  const contentPixelWidth =
+    interactionMode === 'reorder'
+      ? Math.max(reorderPixelWidth, 800)
+      : Math.max(timelinePixelWidth, 800);
+
   // Keyboard shortcuts (Space = play/pause, Delete = delete clip, S = split, Ctrl/Cmd+Z = undo/redo)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -139,7 +152,7 @@ export function TimelineView() {
   ]);
 
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (draggedClipInfo) return;
+    if (draggedClipInfo || interactionMode === 'reorder') return;
     const rect = e.currentTarget.getBoundingClientRect();
     const scrollLeft = e.currentTarget.scrollLeft || containerRef.current?.scrollLeft || 0;
     const clickX = e.clientX - rect.left + scrollLeft;
@@ -346,32 +359,26 @@ export function TimelineView() {
         const scrollLeft = containerRef.current?.scrollLeft ?? 0;
         const targetTimelineX = moveEv.clientX - containerLeft + scrollLeft;
 
-        let candidateIndex = 0;
-        let indicatorPx = 0;
-        let slotLabel = 'Move to Start';
+        const candidateIndex = Math.max(
+          0,
+          Math.min(
+            track.clips.length - 1,
+            Math.round((targetTimelineX - 10) / REORDER_BLOCK_PITCH)
+          )
+        );
+        const indicatorPx = candidateIndex * REORDER_BLOCK_PITCH + 10;
+        const slotLabel =
+          candidateIndex === 0
+            ? 'Move to Start (Slot #1)'
+            : candidateIndex === track.clips.length - 1
+            ? `Move to End (Slot #${track.clips.length})`
+            : `Slot #${candidateIndex + 1}`;
 
-        for (let i = 0; i < track.clips.length; i++) {
-          const c = track.clips[i];
-          if (!c) continue;
-          const midpoint = (c.timelineStart + c.timelineDuration / 2) * basePixelsPerSecond;
-          if (targetTimelineX < midpoint) {
-            candidateIndex = i;
-            indicatorPx = c.timelineStart * basePixelsPerSecond;
-            slotLabel = i === 0 ? 'Move to Sequence Start' : `Slot #${i + 1}`;
-            break;
-          } else {
-            candidateIndex = i;
-            indicatorPx = (c.timelineStart + c.timelineDuration) * basePixelsPerSecond;
-            slotLabel = i === track.clips.length - 1 ? 'Move to Sequence End' : `Slot #${i + 2}`;
-          }
-        }
-
-        const safeIndex = Math.min(candidateIndex, track.clips.length - 1);
-        targetCandidateIndex = safeIndex;
+        targetCandidateIndex = candidateIndex;
 
         setInsertionIndicator({
           trackId: track.id,
-          targetIndex: safeIndex,
+          targetIndex: candidateIndex,
           indicatorPx,
           label: slotLabel,
         });
@@ -609,36 +616,55 @@ export function TimelineView() {
         >
           <div
             className="relative h-full"
-            style={{ width: `${Math.max(timelinePixelWidth, 800)}px` }}
+            style={{ width: `${contentPixelWidth}px` }}
           >
-            {/* Time Ruler (Ticks & Labels) */}
-            <div className="h-6 border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)] relative">
-              {rulerTicks.map((second) => (
-                <div
-                  key={second}
-                  className="absolute top-0 bottom-0 border-l border-[var(--border-subtle)] flex items-end pb-0.5 pl-1"
-                  style={{ left: `${second * basePixelsPerSecond}px` }}
-                >
-                  <span className="font-mono text-[9px] text-[var(--text-tertiary)] pointer-events-none select-none">
-                    {formatSecondsToTimecode(second)}
+            {/* Time Ruler (Ticks & Labels) OR Storyboard Mode Banner */}
+            {interactionMode === 'reorder' ? (
+              <div className="h-6 border-b border-emerald-500/30 bg-emerald-950/40 flex items-center justify-between px-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="font-semibold text-[10px] text-emerald-300 uppercase tracking-wider">
+                    Storyboard Sequence Reorder
+                  </span>
+                  <span className="text-[10px] text-neutral-400 hidden sm:inline">
+                    • Compact blocks • Drag blocks left or right to reorder sequence
                   </span>
                 </div>
-              ))}
-            </div>
+                <span className="text-[9px] font-mono text-emerald-300/90 bg-emerald-900/50 px-2 py-0.5 rounded border border-emerald-500/30">
+                  Switch to "Free Placement" for continuous timeline
+                </span>
+              </div>
+            ) : (
+              <div className="h-6 border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)] relative">
+                {rulerTicks.map((second) => (
+                  <div
+                    key={second}
+                    className="absolute top-0 bottom-0 border-l border-[var(--border-subtle)] flex items-end pb-0.5 pl-1"
+                    style={{ left: `${second * basePixelsPerSecond}px` }}
+                  >
+                    <span className="font-mono text-[9px] text-[var(--text-tertiary)] pointer-events-none select-none">
+                      {formatSecondsToTimecode(second)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
 
-            {/* Playhead Marker & Needle */}
-            <div
-              className="absolute top-0 bottom-0 z-30 pointer-events-none transition-transform duration-75"
-              style={{
-                left: `${currentTime * basePixelsPerSecond}px`,
-                transform: 'translateX(-50%)',
-              }}
-            >
-              {/* Playhead Handle */}
-              <div className="w-3.5 h-3.5 bg-[var(--accent-primary)] rounded-xs rotate-45 mx-auto shadow-md" />
-              {/* Playhead Vertical Line */}
-              <div className="w-[1.5px] h-full bg-[var(--accent-primary)] mx-auto shadow-xs" />
-            </div>
+            {/* Playhead Marker & Needle (Hidden during Reorder Mode for clarity) */}
+            {interactionMode !== 'reorder' && (
+              <div
+                className="absolute top-0 bottom-0 z-30 pointer-events-none transition-transform duration-75"
+                style={{
+                  left: `${currentTime * basePixelsPerSecond}px`,
+                  transform: 'translateX(-50%)',
+                }}
+              >
+                {/* Playhead Handle */}
+                <div className="w-3.5 h-3.5 bg-[var(--accent-primary)] rounded-xs rotate-45 mx-auto shadow-md" />
+                {/* Playhead Vertical Line */}
+                <div className="w-[1.5px] h-full bg-[var(--accent-primary)] mx-auto shadow-xs" />
+              </div>
+            )}
 
             {/* Magnetic Snapping Guideline (Full-height cyan line across all tracks with badge) */}
             {snapGuide && (
@@ -682,8 +708,13 @@ export function TimelineView() {
                 {track.clips.map((clip, clipIdx) => {
                   const isSelected = selectedClipId === clip.id;
                   const isDragged = draggedClipInfo?.clipId === clip.id;
-                  const clipLeft = clip.timelineStart * basePixelsPerSecond;
-                  const clipWidth = clip.timelineDuration * basePixelsPerSecond;
+                  const isReorder = interactionMode === 'reorder';
+                  const clipLeft = isReorder
+                    ? clipIdx * REORDER_BLOCK_PITCH + 10
+                    : clip.timelineStart * basePixelsPerSecond;
+                  const clipWidth = isReorder
+                    ? REORDER_BLOCK_WIDTH
+                    : clip.timelineDuration * basePixelsPerSecond;
 
                   // Label determination
                   let clipLabel = clip.name || clip.id;
@@ -710,11 +741,11 @@ export function TimelineView() {
                       } ${isDragged ? 'opacity-40 scale-98 shadow-xl' : ''}`}
                       style={{
                         left: `${clipLeft}px`,
-                        width: `${Math.max(clipWidth, 16)}px`,
+                        width: `${Math.max(clipWidth, isReorder ? REORDER_BLOCK_WIDTH : 16)}px`,
                       }}
                     >
-                      {/* Left Trim Handle */}
-                      {isSelected && (
+                      {/* Left Trim Handle (Free Placement mode only) */}
+                      {!isReorder && isSelected && (
                         <div
                           className="absolute left-0 top-0 bottom-0 w-3 bg-black/40 hover:bg-[var(--accent-primary)] cursor-col-resize rounded-l-md flex items-center justify-center z-30 transition-colors"
                           title="Drag to trim start"
@@ -727,59 +758,87 @@ export function TimelineView() {
                         </div>
                       )}
 
-                      {/* Transition Indicator Badges (In & Out) */}
-                      {(clip.transitions?.in || clip.transition) && (
-                        <span
-                          className="px-1 py-0.2 rounded-xs bg-amber-400/30 text-amber-900 dark:text-amber-200 text-[8px] font-mono mr-1 shrink-0 flex items-center gap-0.5"
-                          title={`Incoming: ${(clip.transitions?.in || clip.transition)!.type} (${(clip.transitions?.in || clip.transition)!.duration}s)`}
-                        >
-                          <Layers className="w-2 h-2" />
-                          <span>▶ In: {(clip.transitions?.in || clip.transition)!.type}</span>
-                        </span>
+                      {/* Content inside Clip */}
+                      {isReorder ? (
+                        /* REORDER STORYBOARD BLOCK VIEW: Compact, clean, numbered tile */
+                        <div className="flex items-center gap-1.5 w-full min-w-0">
+                          <span className="px-1.5 py-0.5 rounded-xs bg-black/50 text-white font-mono text-[9px] font-bold shrink-0">
+                            #{clipIdx + 1}
+                          </span>
+                          <GripVertical className="w-3.5 h-3.5 text-white/70 shrink-0" />
+                          <span className="font-semibold truncate text-[11px] pointer-events-none flex-1 min-w-0">
+                            {clipLabel}
+                          </span>
+                          {clip.playbackRate && clip.playbackRate !== 1 && (
+                            <span className="text-[8px] font-mono bg-amber-500/30 text-amber-900 dark:text-amber-200 px-1 py-0.2 rounded-xs font-bold shrink-0">
+                              {clip.playbackRate}x
+                            </span>
+                          )}
+                          <span className="font-mono text-[9px] opacity-75 shrink-0">
+                            {clip.timelineDuration.toFixed(1)}s
+                          </span>
+                        </div>
+                      ) : (
+                        /* TIME-PROPORTIONAL VIEW: Standard timeline with trim handles & badges */
+                        <div className="flex items-center justify-between w-full min-w-0 overflow-hidden">
+                          {/* Incoming Transition Badge */}
+                          {clip.transitions?.in && (
+                            <span
+                              className="px-1 py-0.2 rounded-xs bg-amber-400/30 text-amber-900 dark:text-amber-200 text-[8px] font-mono mr-1 shrink-0 flex items-center gap-0.5 max-w-[85px] truncate"
+                              title={`Incoming: ${clip.transitions.in.type} (${clip.transitions.in.duration}s)`}
+                            >
+                              <Layers className="w-2 h-2 shrink-0" />
+                              <span className="truncate">▶ In: {clip.transitions.in.type}</span>
+                            </span>
+                          )}
+
+                          <span className="font-medium truncate text-[11px] pointer-events-none px-1 flex-1 min-w-0">
+                            {clipLabel}
+                          </span>
+
+                          <div className="flex items-center shrink-0">
+                            {/* Audio Ducking Badge */}
+                            {clip.audioDucking?.enabled && (
+                              <span className="text-[8px] font-mono bg-blue-500/20 text-blue-900 dark:text-blue-200 px-1 py-0.2 rounded-xs mr-1 shrink-0">
+                                -14dB Duck
+                              </span>
+                            )}
+
+                            {/* Color Grade Badge */}
+                            {clip.colorFilter && clip.colorFilter !== 'none' && (
+                              <span className="text-[8px] font-mono bg-purple-500/20 text-purple-900 dark:text-purple-200 px-1 py-0.2 rounded-xs mr-1 shrink-0 max-w-[70px] truncate">
+                                🎨 {clip.colorFilter}
+                              </span>
+                            )}
+
+                            {/* Clip Custom Playback Speed Badge */}
+                            {clip.playbackRate && clip.playbackRate !== 1 && (
+                              <span className="text-[8px] font-mono bg-amber-500/25 text-amber-900 dark:text-amber-200 px-1 py-0.2 rounded-xs font-bold mr-1 shrink-0 flex items-center gap-0.5">
+                                <Zap className="w-2 h-2 text-amber-500" />
+                                <span>{clip.playbackRate}x</span>
+                              </span>
+                            )}
+
+                            {/* Outgoing Transition Badge */}
+                            {clip.transitions?.out && (
+                              <span
+                                className="px-1 py-0.2 rounded-xs bg-amber-500/30 text-amber-950 dark:text-amber-200 text-[8px] font-mono ml-1 shrink-0 flex items-center gap-0.5 max-w-[85px] truncate"
+                                title={`Outgoing: ${clip.transitions.out.type} (${clip.transitions.out.duration}s)`}
+                              >
+                                <Layers className="w-2 h-2 shrink-0" />
+                                <span className="truncate">Out: {clip.transitions.out.type} ◀</span>
+                              </span>
+                            )}
+
+                            <span className="font-mono text-[9px] opacity-75 truncate pointer-events-none px-1">
+                              {clip.timelineDuration.toFixed(1)}s
+                            </span>
+                          </div>
+                        </div>
                       )}
 
-                      <span className="font-medium truncate text-[11px] pointer-events-none px-1">
-                        {clipLabel}
-                      </span>
-
-                      {clip.transitions?.out && (
-                        <span
-                          className="px-1 py-0.2 rounded-xs bg-amber-500/30 text-amber-950 dark:text-amber-200 text-[8px] font-mono mr-1 shrink-0 flex items-center gap-0.5"
-                          title={`Outgoing: ${clip.transitions.out.type} (${clip.transitions.out.duration}s)`}
-                        >
-                          <Layers className="w-2 h-2" />
-                          <span>Out: {clip.transitions.out.type} ◀</span>
-                        </span>
-                      )}
-
-                      {/* Audio Ducking Badge */}
-                      {clip.audioDucking?.enabled && (
-                        <span className="text-[8px] font-mono bg-blue-500/20 text-blue-900 dark:text-blue-200 px-1 py-0.2 rounded-xs mr-1 shrink-0">
-                          -14dB Duck
-                        </span>
-                      )}
-
-                      {/* Color Grade Badge */}
-                      {clip.colorFilter && clip.colorFilter !== 'none' && (
-                        <span className="text-[8px] font-mono bg-purple-500/20 text-purple-900 dark:text-purple-200 px-1 py-0.2 rounded-xs mr-1 shrink-0">
-                          🎨 {clip.colorFilter}
-                        </span>
-                      )}
-
-                      {/* Clip Custom Playback Speed Badge */}
-                      {clip.playbackRate && clip.playbackRate !== 1 && (
-                        <span className="text-[8px] font-mono bg-amber-500/25 text-amber-900 dark:text-amber-200 px-1 py-0.2 rounded-xs font-bold mr-1 shrink-0 flex items-center gap-0.5">
-                          <Zap className="w-2 h-2 text-amber-500" />
-                          <span>{clip.playbackRate}x</span>
-                        </span>
-                      )}
-
-                      <span className="font-mono text-[9px] opacity-75 truncate pointer-events-none px-1">
-                        {clip.timelineDuration.toFixed(1)}s
-                      </span>
-
-                      {/* Right Trim Handle */}
-                      {isSelected && (
+                      {/* Right Trim Handle (Free Placement mode only) */}
+                      {!isReorder && isSelected && (
                         <div
                           className="absolute right-0 top-0 bottom-0 w-3 bg-black/40 hover:bg-[var(--accent-primary)] cursor-col-resize rounded-r-md flex items-center justify-center z-30 transition-colors"
                           title="Drag to trim end"

@@ -248,6 +248,25 @@ export function PropertyInspector() {
                       className="w-full accent-[var(--accent-primary)] h-1.5 rounded-lg bg-[var(--border-strong)] cursor-pointer"
                     />
                   </div>
+
+                  {/* Reset Visual Adjustments & Filters to Natural */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateClipProperties(selectedClip!.id, {
+                        brightness: 1.0,
+                        contrast: 1.0,
+                        saturation: 1.0,
+                        colorFilter: 'none',
+                      });
+                      setActiveFilter('none');
+                    }}
+                    className="mt-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg bg-[var(--bg-base)] hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] text-[10px] font-medium transition-colors cursor-pointer"
+                    title="Reset brightness, contrast, saturation, and color filter to natural camera default"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset to Natural Colors</span>
+                  </button>
                 </div>
 
                 {/* Video Clip Audio Volume */}
@@ -314,7 +333,7 @@ export function PropertyInspector() {
                       </span>
                     </div>
                     <select
-                      value={selectedClip.transitions?.in?.type || selectedClip.transition?.type || 'none'}
+                      value={selectedClip.transitions?.in?.type || 'none'}
                       onChange={(e) => {
                         const type = e.target.value;
                         const dur = selectedClip?.transitions?.in?.duration || 0.8;
@@ -322,8 +341,13 @@ export function PropertyInspector() {
                           type === 'none'
                             ? undefined
                             : { type: type as any, duration: dur };
+                        const updatedTransitions = {
+                          ...selectedClip!.transitions,
+                          in: newIn,
+                        };
+                        if (!newIn) delete updatedTransitions.in;
                         updateClipProperties(selectedClip!.id, {
-                          transitions: { ...selectedClip!.transitions, in: newIn },
+                          transitions: Object.keys(updatedTransitions).length > 0 ? updatedTransitions : undefined,
                           transition: newIn,
                         });
                       }}
@@ -355,8 +379,13 @@ export function PropertyInspector() {
                           type === 'none'
                             ? undefined
                             : { type: type as any, duration: dur };
+                        const updatedTransitions = {
+                          ...selectedClip!.transitions,
+                          out: newOut,
+                        };
+                        if (!newOut) delete updatedTransitions.out;
                         updateClipProperties(selectedClip!.id, {
-                          transitions: { ...selectedClip!.transitions, out: newOut },
+                          transitions: Object.keys(updatedTransitions).length > 0 ? updatedTransitions : undefined,
                         });
                       }}
                       className="w-full p-1.5 rounded-md bg-[var(--bg-base)] border border-[var(--border-strong)] text-xs text-[var(--text-primary)] cursor-pointer"

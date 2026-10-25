@@ -23,23 +23,23 @@ import { bgmSynth } from '../utils/bgm-synth';
 export function getFilterCss(filterName?: string): string {
   switch (filterName) {
     case 'warm-vintage':
-      return 'sepia(0.3) saturate(1.2) contrast(1.05) brightness(1.02)';
+      return 'sepia(0.3) saturate(1.2) contrast(1.05)';
     case 'teal-orange':
       return 'contrast(1.2) saturate(1.3) hue-rotate(-10deg)';
     case 'noir-bw':
-      return 'grayscale(1) contrast(1.3) brightness(0.95)';
+      return 'grayscale(1) contrast(1.3)';
     case 'cyberpunk':
       return 'saturate(1.8) hue-rotate(180deg) contrast(1.15)';
     case 'clean-pop':
-      return 'contrast(1.1) saturate(1.25) brightness(1.05)';
+      return 'contrast(1.1) saturate(1.25)';
     case 'kodak-35mm':
       return 'sepia(0.18) saturate(1.15) contrast(1.12)';
     case 'bleach-bypass':
-      return 'contrast(1.4) saturate(0.6) brightness(1.05)';
+      return 'contrast(1.4) saturate(0.6)';
     case 'cool-slate':
       return 'hue-rotate(190deg) saturate(0.8) contrast(1.1)';
     default:
-      return 'none';
+      return '';
   }
 }
 
@@ -47,6 +47,7 @@ export function VideoPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgmAudioRef = useRef<HTMLAudioElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const currentPlayingClipIdRef = useRef<string | null>(null);
   const [volume, setVolume] = useState(1);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
@@ -166,7 +167,8 @@ export function VideoPlayer() {
   }
 
   // Filter & Transform calculations
-  const currentFilterName = activeClipInfo?.clip.colorFilter || activeFilter || 'none';
+  const clipFilter = activeClipInfo?.clip.colorFilter;
+  const currentFilterName = clipFilter !== undefined ? clipFilter : (activeFilter || 'none');
   const filterStyle = getFilterCss(currentFilterName);
   const transform = activeClipInfo?.clip.transform;
   const baseScale = transform?.scale ?? 1.0;
@@ -259,11 +261,12 @@ export function VideoPlayer() {
     }
   }, [currentTime, activeClipInfo, isPlaying]);
 
-  // Stutter-free virtual playback loop: HTML5 hardware clock drives time, 0 lag at any speed
+  // Stutter-free virtual playback loop: continuous timeline clock, seamless cuts without pause/seek oscillation
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !isPlaying) {
       if (video && !video.paused) video.pause();
+      currentPlayingClipIdRef.current = null;
       return;
     }
 
@@ -271,75 +274,64 @@ export function VideoPlayer() {
     let lastTimestamp = performance.now();
 
     const tick = (now: number) => {
-      const deltaSec = (now - lastTimestamp) / 1000;
+      const deltaSec = Math.min((now - lastTimestamp) / 1000, 0.1);
       lastTimestamp = now;
 
       const globalRate = playbackRate;
       const currentTlTime = useTimelineStore.getState().currentTime;
       const activeInfo = getActiveClipAtTime(timeline.tracks, currentTlTime);
 
-      if (activeInfo) {
-        const clipRate = activeInfo.clip.playbackRate || 1;
+      const activeRate = (activeInfo?.clip.playbackRate || 1) * globalRate;
+      const nextTlTime = currentTlTime + deltaSec * activeRate;
+
+      if (nextTlTime >= timeline.duration) {
+        setCurrentTime(timeline.duration);
+        setIsPlaying(false);
+        if (!video.paused) video.pause();
+        currentPlayingClipIdRef.current = null;
+        return;
+      }
+
+      const nextActiveInfo = getActiveClipAtTime(timeline.tracks, nextTlTime);
+
+      if (nextActiveInfo) {
+        const clipRate = nextActiveInfo.clip.playbackRate || 1;
         const effectiveRate = clipRate * globalRate;
+        const clipChanged = nextActiveInfo.clip.id !== currentPlayingClipIdRef.current;
+        currentPlayingClipIdRef.current = nextActiveInfo.clip.id;
 
-        if (video.paused) {
-          video.currentTime = activeInfo.sourceTime;
+        if (clipChanged) {
+          // Changed to next clip: update rate and sync time seamlessly without stopping playback
           video.playbackRate = effectiveRate;
-          void video.play().catch(() => {});
-        } else if (Math.abs(video.playbackRate - effectiveRate) > 0.01) {
-          video.playbackRate = effectiveRate;
-        }
-
-        // Only correct video time if drift exceeds 0.35s (e.g. from a click seek)
-        const expectedSource = activeInfo.sourceTime;
-        if (Math.abs(video.currentTime - expectedSource) > 0.35) {
-          video.currentTime = expectedSource;
-        }
-
-        // Smoothly derive timeline time from video playback
-        const elapsedInClip = (video.currentTime - activeInfo.clip.sourceStart) / clipRate;
-        const derivedTlTime = activeInfo.clip.timelineStart + elapsedInClip;
-        const clipEndTime = activeInfo.clip.timelineStart + activeInfo.clip.timelineDuration;
-
-        // Clip boundary detection: when clip finishes, pause video and smoothly transition into gap/next clip
-        if (
-          video.currentTime >= activeInfo.clip.sourceEnd - 0.04 ||
-          derivedTlTime >= clipEndTime - 0.02
-        ) {
-          if (!video.paused) video.pause();
-
-          if (clipEndTime >= timeline.duration) {
-            setCurrentTime(timeline.duration);
-            setIsPlaying(false);
-            return;
+          const drift = Math.abs(video.currentTime - nextActiveInfo.sourceTime);
+          if (drift > 0.08) {
+            video.currentTime = nextActiveInfo.sourceTime;
           }
-          // Smoothly advance playhead so gaps, title cards, and overlays are rendered without skipping
-          setCurrentTime(clipEndTime);
+          if (video.paused) {
+            void video.play().catch(() => {});
+          }
         } else {
-          setCurrentTime(Math.min(timeline.duration, Math.max(0, derivedTlTime)));
+          // Continuing playback inside the current clip
+          if (Math.abs(video.playbackRate - effectiveRate) > 0.01) {
+            video.playbackRate = effectiveRate;
+          }
+          const drift = Math.abs(video.currentTime - nextActiveInfo.sourceTime);
+          if (drift > 0.25) {
+            video.currentTime = nextActiveInfo.sourceTime;
+          }
+          if (video.paused) {
+            void video.play().catch(() => {});
+          }
         }
+
+        setCurrentTime(nextTlTime);
       } else {
-        // No video clip (e.g. intro title card at 0:00, blank gap, or outro)
+        // In a blank gap, title card, or outro: pause video cleanly and advance playhead
+        currentPlayingClipIdRef.current = null;
         if (!video.paused) {
           video.pause();
         }
-
-        const newTlTime = currentTlTime + deltaSec * globalRate;
-        if (newTlTime >= timeline.duration) {
-          setCurrentTime(timeline.duration);
-          setIsPlaying(false);
-          return;
-        }
-
-        // Check if playhead reached the next video clip
-        const nextInfo = getActiveClipAtTime(timeline.tracks, newTlTime);
-        if (nextInfo) {
-          video.currentTime = nextInfo.sourceTime;
-          const nextClipRate = nextInfo.clip.playbackRate || 1;
-          video.playbackRate = nextClipRate * globalRate;
-          void video.play().catch(() => {});
-        }
-        setCurrentTime(newTlTime);
+        setCurrentTime(nextTlTime);
       }
 
       animationFrameId = requestAnimationFrame(tick);
@@ -390,9 +382,26 @@ export function VideoPlayer() {
   const clipContrast = activeClipInfo?.clip.contrast ?? 1.0;
   const clipSaturation = activeClipInfo?.clip.saturation ?? 1.0;
 
-  const combinedFilter = `${filterStyle} brightness(${transBrightness * clipBrightness}) contrast(${clipContrast}) saturate(${clipSaturation}) ${
-    transBlur > 0 ? `blur(${transBlur}px)` : ''
-  }`.trim();
+  // Build clean, valid CSS filter string without illegal 'none' keywords
+  const filterParts: string[] = [];
+  if (filterStyle) {
+    filterParts.push(filterStyle);
+  }
+  const effectiveBrightness = transBrightness * clipBrightness;
+  if (Math.abs(effectiveBrightness - 1) > 0.001) {
+    filterParts.push(`brightness(${effectiveBrightness.toFixed(3)})`);
+  }
+  if (Math.abs(clipContrast - 1) > 0.001) {
+    filterParts.push(`contrast(${clipContrast.toFixed(3)})`);
+  }
+  if (Math.abs(clipSaturation - 1) > 0.001) {
+    filterParts.push(`saturate(${clipSaturation.toFixed(3)})`);
+  }
+  if (transBlur > 0) {
+    filterParts.push(`blur(${transBlur.toFixed(1)}px)`);
+  }
+
+  const combinedFilter = filterParts.length > 0 ? filterParts.join(' ') : 'none';
 
   return (
     <div

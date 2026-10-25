@@ -23,6 +23,8 @@ export function splitClipAtTimestamp(
     id: `${clip.id}_a_${Date.now().toString(36)}`,
     sourceEnd: clip.sourceStart + sourceOffset,
     timelineDuration: offset,
+    transitions: clip.transitions?.in ? { in: clip.transitions.in } : undefined,
+    transition: clip.transitions?.in,
   };
 
   const secondClip: Clip = {
@@ -31,6 +33,8 @@ export function splitClipAtTimestamp(
     sourceStart: clip.sourceStart + sourceOffset,
     timelineStart: timelineTimestamp,
     timelineDuration: clip.timelineDuration - offset,
+    transitions: clip.transitions?.out ? { out: clip.transitions.out } : undefined,
+    transition: undefined,
   };
 
   return [firstClip, secondClip];
