@@ -210,12 +210,36 @@ export function ActivityDock() {
         }
       } else if (isAudio) {
         const path = URL.createObjectURL(file);
+        let audioDuration = 5;
+        try {
+          audioDuration = await new Promise<number>((resolve) => {
+            const probeAudio = new Audio();
+            probeAudio.preload = 'metadata';
+            const timer = setTimeout(() => resolve(5), 2500);
+            probeAudio.onloadedmetadata = () => {
+              clearTimeout(timer);
+              if (probeAudio.duration && isFinite(probeAudio.duration) && probeAudio.duration > 0) {
+                resolve(Number(probeAudio.duration.toFixed(2)));
+              } else {
+                resolve(5);
+              }
+            };
+            probeAudio.onerror = () => {
+              clearTimeout(timer);
+              resolve(5);
+            };
+            probeAudio.src = path;
+          });
+        } catch {
+          audioDuration = 5;
+        }
+
         addProjectAsset({
           id: `audio_${Date.now()}_${i}`,
           name: file.name,
           type: 'audio',
           path,
-          duration: 30,
+          duration: audioDuration,
           size: file.size,
         });
       } else if (isImage) {

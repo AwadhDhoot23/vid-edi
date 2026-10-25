@@ -174,6 +174,82 @@ export function PropertyInspector() {
                   </select>
                 </div>
 
+                {/* Visual Adjustments: Brightness, Contrast, Saturation */}
+                <div className="flex flex-col gap-2 p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]">
+                  <span className="font-semibold text-[var(--text-secondary)] uppercase tracking-wider text-[10px]">
+                    Visual Adjustments
+                  </span>
+
+                  {/* Brightness */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-[var(--text-secondary)]">Brightness</span>
+                      <span className="font-mono text-[10px] text-[var(--text-primary)]">
+                        {Math.round((selectedClip.brightness ?? 1.0) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="1.5"
+                      step="0.05"
+                      value={selectedClip.brightness ?? 1.0}
+                      onChange={(e) =>
+                        updateClipProperties(selectedClip!.id, {
+                          brightness: parseFloat(e.target.value),
+                        })
+                      }
+                      className="w-full accent-[var(--accent-primary)] h-1.5 rounded-lg bg-[var(--border-strong)] cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Contrast */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-[var(--text-secondary)]">Contrast</span>
+                      <span className="font-mono text-[10px] text-[var(--text-primary)]">
+                        {Math.round((selectedClip.contrast ?? 1.0) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="1.5"
+                      step="0.05"
+                      value={selectedClip.contrast ?? 1.0}
+                      onChange={(e) =>
+                        updateClipProperties(selectedClip!.id, {
+                          contrast: parseFloat(e.target.value),
+                        })
+                      }
+                      className="w-full accent-[var(--accent-primary)] h-1.5 rounded-lg bg-[var(--border-strong)] cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Saturation */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-[var(--text-secondary)]">Saturation</span>
+                      <span className="font-mono text-[10px] text-[var(--text-primary)]">
+                        {Math.round((selectedClip.saturation ?? 1.0) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="2.0"
+                      step="0.05"
+                      value={selectedClip.saturation ?? 1.0}
+                      onChange={(e) =>
+                        updateClipProperties(selectedClip!.id, {
+                          saturation: parseFloat(e.target.value),
+                        })
+                      }
+                      className="w-full accent-[var(--accent-primary)] h-1.5 rounded-lg bg-[var(--border-strong)] cursor-pointer"
+                    />
+                  </div>
+                </div>
+
                 {/* Video Clip Audio Volume */}
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
@@ -528,6 +604,65 @@ export function PropertyInspector() {
                     }
                     className="w-full accent-[var(--accent-primary)] h-1.5 rounded-lg bg-[var(--border-strong)] cursor-pointer"
                   />
+                </div>
+
+                {/* Audio Fade Envelope (Fade In & Fade Out) */}
+                <div className="flex flex-col gap-2 p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]">
+                  <span className="font-semibold text-[var(--text-secondary)] uppercase tracking-wider text-[10px]">
+                    Audio Fades
+                  </span>
+
+                  {/* Fade In */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-[var(--text-secondary)]">Fade In</span>
+                      <span className="font-mono text-[10px] text-[var(--accent-primary)] font-bold">
+                        {(selectedClip.audioFade?.in ?? 0).toFixed(1)}s
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="5.0"
+                      step="0.2"
+                      value={selectedClip.audioFade?.in ?? 0}
+                      onChange={(e) =>
+                        updateClipProperties(selectedClip!.id, {
+                          audioFade: {
+                            ...selectedClip!.audioFade,
+                            in: parseFloat(e.target.value),
+                          },
+                        })
+                      }
+                      className="w-full accent-[var(--accent-primary)] h-1.5 rounded-lg bg-[var(--border-strong)] cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Fade Out */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-[var(--text-secondary)]">Fade Out</span>
+                      <span className="font-mono text-[10px] text-[var(--accent-primary)] font-bold">
+                        {(selectedClip.audioFade?.out ?? 0).toFixed(1)}s
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="5.0"
+                      step="0.2"
+                      value={selectedClip.audioFade?.out ?? 0}
+                      onChange={(e) =>
+                        updateClipProperties(selectedClip!.id, {
+                          audioFade: {
+                            ...selectedClip!.audioFade,
+                            out: parseFloat(e.target.value),
+                          },
+                        })
+                      }
+                      className="w-full accent-[var(--accent-primary)] h-1.5 rounded-lg bg-[var(--border-strong)] cursor-pointer"
+                    />
+                  </div>
                 </div>
 
                 {/* Speech Ducking Toggle */}

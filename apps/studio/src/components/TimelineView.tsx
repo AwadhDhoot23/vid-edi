@@ -204,32 +204,44 @@ export function TimelineView() {
   };
 
   const handleTrimStart = (
-    e: React.MouseEvent,
+    e: React.PointerEvent,
     clip: Clip,
     type: 'start' | 'end'
   ) => {
     e.stopPropagation();
+    e.preventDefault();
+
     const initialClientX = e.clientX;
     const initialSourceStart = clip.sourceStart;
     const initialSourceEnd = clip.sourceEnd;
+    const initialTimelineStart = clip.timelineStart;
+    const initialTimelineDuration = clip.timelineDuration;
     const preDragSnapshot = timeline;
     let hasMoved = false;
 
-    const onMouseMove = (moveEvent: MouseEvent) => {
+    const isSyntheticClip =
+      clip.titleCard !== undefined ||
+      clip.textOverlay !== undefined ||
+      clip.sourceId === 'overlay_title' ||
+      clip.sourceId === 'text_overlay';
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
       const deltaPx = moveEvent.clientX - initialClientX;
-      if (Math.abs(deltaPx) < 2) return;
+      if (Math.abs(deltaPx) < 1) return;
       hasMoved = true;
       const deltaSec = deltaPx / basePixelsPerSecond;
 
       if (type === 'start') {
-        const tentativeTlStart = clip.timelineStart + deltaSec;
+        const tentativeTlStart = Math.max(0, initialTimelineStart + deltaSec);
         const snap = findSnapTarget(tentativeTlStart, clip.id);
         let newStart: number;
+        const maxStart = initialSourceEnd - 0.3;
+
         if (snap) {
-          const snappedDelta = snap.snappedSec - clip.timelineStart;
+          const snappedDelta = snap.snappedSec - initialTimelineStart;
           newStart = Math.max(
             0,
-            Math.min(initialSourceStart + snappedDelta * clip.playbackRate, initialSourceEnd - 0.5)
+            Math.min(initialSourceStart + snappedDelta * clip.playbackRate, maxStart)
           );
           setSnapGuide({
             timeSec: snap.snappedSec,
@@ -239,23 +251,25 @@ export function TimelineView() {
         } else {
           newStart = Math.max(
             0,
-            Math.min(initialSourceStart + deltaSec * clip.playbackRate, initialSourceEnd - 0.5)
+            Math.min(initialSourceStart + deltaSec * clip.playbackRate, maxStart)
           );
           setSnapGuide(null);
         }
         trimClip(clip.id, newStart, initialSourceEnd, false, false);
       } else {
-        const tentativeTlEnd =
-          clip.timelineStart + (initialSourceEnd + deltaSec * clip.playbackRate - clip.sourceStart) / clip.playbackRate;
+        // Dragging right handle: timelineStart stays STRICTLY fixed at initialTimelineStart!
+        const tentativeTlEnd = initialTimelineStart + initialTimelineDuration + deltaSec;
         const snap = findSnapTarget(tentativeTlEnd, clip.id);
         let newEnd: number;
-        const maxSourceDuration = activeSource?.duration ?? Infinity;
+        const maxSourceDuration = isSyntheticClip
+          ? Infinity
+          : (activeSource?.duration ?? Infinity);
 
         if (snap) {
-          const snappedDur = snap.snappedSec - clip.timelineStart;
+          const snappedDur = Math.max(0.3, snap.snappedSec - initialTimelineStart);
           newEnd = Math.max(
-            initialSourceStart + 0.5,
-            Math.min(maxSourceDuration, clip.sourceStart + snappedDur * clip.playbackRate)
+            initialSourceStart + 0.3,
+            Math.min(maxSourceDuration, initialSourceStart + snappedDur * clip.playbackRate)
           );
           setSnapGuide({
             timeSec: snap.snappedSec,
@@ -263,9 +277,10 @@ export function TimelineView() {
             label: snap.guideLabel,
           });
         } else {
+          const newDur = Math.max(0.3, initialTimelineDuration + deltaSec);
           newEnd = Math.max(
-            initialSourceStart + 0.5,
-            Math.min(maxSourceDuration, initialSourceEnd + deltaSec * clip.playbackRate)
+            initialSourceStart + 0.3,
+            Math.min(maxSourceDuration, initialSourceStart + newDur * clip.playbackRate)
           );
           setSnapGuide(null);
         }
@@ -273,17 +288,17 @@ export function TimelineView() {
       }
     };
 
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
       setSnapGuide(null);
       if (hasMoved) {
         commitHistorySnapshot(preDragSnapshot);
       }
     };
 
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
   };
 
   // Direct Pointer Clip Drag: supports Magnetic Reordering with Small Blocks & Free Move with Snap Guidelines
@@ -299,10 +314,11 @@ export function TimelineView() {
     const initialTimelineStart = clip.timelineStart;
     let isDragging = false;
     let finalFreeStart = initialTimelineStart;
+    let targetCandidateIndex: number | null = null;
 
     const onPointerMove = (moveEv: PointerEvent) => {
       const deltaX = moveEv.clientX - initialX;
-      if (!isDragging && Math.abs(deltaX) > 4) {
+      if (!isDragging && Math.abs(deltaX) > 3) {
         isDragging = true;
         setDraggedClipInfo({
           clipId: clip.id,
@@ -351,6 +367,8 @@ export function TimelineView() {
         }
 
         const safeIndex = Math.min(candidateIndex, track.clips.length - 1);
+        targetCandidateIndex = safeIndex;
+
         setInsertionIndicator({
           trackId: track.id,
           targetIndex: safeIndex,
@@ -398,9 +416,9 @@ export function TimelineView() {
       window.removeEventListener('pointerup', onPointerUp);
 
       if (isDragging) {
-        if (interactionMode === 'reorder' && insertionIndicator) {
-          if (fromIndex !== insertionIndicator.targetIndex) {
-            reorderClips(track.id, fromIndex, insertionIndicator.targetIndex);
+        if (interactionMode === 'reorder') {
+          if (targetCandidateIndex !== null && fromIndex !== targetCandidateIndex) {
+            reorderClips(track.id, fromIndex, targetCandidateIndex);
           }
         } else {
           moveClip(clip.id, Number(finalFreeStart.toFixed(2)));
@@ -628,8 +646,13 @@ export function TimelineView() {
                 className="absolute top-0 bottom-0 w-[2px] bg-cyan-400 dark:bg-cyan-300 z-45 pointer-events-none shadow-[0_0_10px_rgba(6,182,212,0.95)]"
                 style={{ left: `${snapGuide.pixelX}px`, transform: 'translateX(-50%)' }}
               >
-                <div className="absolute top-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-cyan-500 text-black font-semibold text-[10px] whitespace-nowrap shadow-lg flex items-center gap-1 z-50">
-                  <Magnet className="w-2.5 h-2.5" />
+                <div
+                  className="absolute top-1 px-2.5 py-0.5 rounded-full bg-cyan-500 text-black font-semibold text-[10px] whitespace-nowrap shadow-xl flex items-center gap-1.5 z-50 border border-cyan-200/60"
+                  style={{
+                    transform: snapGuide.pixelX < 70 ? 'translateX(0)' : 'translateX(-50%)',
+                  }}
+                >
+                  <Magnet className="w-2.5 h-2.5 shrink-0" />
                   <span>{snapGuide.label}</span>
                 </div>
                 <div className="w-2 h-2 bg-cyan-400 rotate-45 mx-auto -mt-1 shadow-xs" />
@@ -693,11 +716,14 @@ export function TimelineView() {
                       {/* Left Trim Handle */}
                       {isSelected && (
                         <div
-                          className="absolute left-0 top-0 bottom-0 w-2.5 bg-black/40 hover:bg-[var(--accent-primary)] cursor-col-resize rounded-l-md flex items-center justify-center z-30 transition-colors"
+                          className="absolute left-0 top-0 bottom-0 w-3 bg-black/40 hover:bg-[var(--accent-primary)] cursor-col-resize rounded-l-md flex items-center justify-center z-30 transition-colors"
                           title="Drag to trim start"
-                          onMouseDown={(e) => handleTrimStart(e, clip, 'start')}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            handleTrimStart(e, clip, 'start');
+                          }}
                         >
-                          <div className="w-0.5 h-3 bg-white/80 rounded-full" />
+                          <div className="w-0.5 h-3 bg-white/80 rounded-full pointer-events-none" />
                         </div>
                       )}
 
@@ -755,11 +781,14 @@ export function TimelineView() {
                       {/* Right Trim Handle */}
                       {isSelected && (
                         <div
-                          className="absolute right-0 top-0 bottom-0 w-2.5 bg-black/40 hover:bg-[var(--accent-primary)] cursor-col-resize rounded-r-md flex items-center justify-center z-30 transition-colors"
+                          className="absolute right-0 top-0 bottom-0 w-3 bg-black/40 hover:bg-[var(--accent-primary)] cursor-col-resize rounded-r-md flex items-center justify-center z-30 transition-colors"
                           title="Drag to trim end"
-                          onMouseDown={(e) => handleTrimStart(e, clip, 'end')}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            handleTrimStart(e, clip, 'end');
+                          }}
                         >
-                          <div className="w-0.5 h-3 bg-white/80 rounded-full" />
+                          <div className="w-0.5 h-3 bg-white/80 rounded-full pointer-events-none" />
                         </div>
                       )}
                     </div>

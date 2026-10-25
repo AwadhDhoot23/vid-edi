@@ -92,6 +92,13 @@ export interface Clip {
   volume: number;
   name?: string;
   colorFilter?: string; // 'none' | 'warm-vintage' | 'teal-orange' | 'noir-bw' | 'cyberpunk' | 'clean-pop' | 'kodak-35mm' | 'bleach-bypass' | 'cool-slate'
+  brightness?: number; // 0.5 to 1.5 (default 1.0)
+  contrast?: number; // 0.5 to 1.5 (default 1.0)
+  saturation?: number; // 0.0 to 2.0 (default 1.0)
+  audioFade?: {
+    in?: number; // seconds (0 to 5s)
+    out?: number; // seconds (0 to 5s)
+  };
   transform?: ClipTransform;
   textOverlay?: TextOverlayConfig;
   titleCard?: TitleCardConfig;

@@ -298,19 +298,42 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
     const oldEnd = targetClip.timelineStart + targetClip.timelineDuration;
     const durationDelta = targetClip.timelineDuration - newDuration;
 
+    // Check if this is an Intro Title Card at 0:00 (which shifts main video clips downstream)
+    const isIntroTitleCard =
+      (targetClip.titleCard !== undefined || targetClip.sourceId === 'overlay_title') &&
+      targetClip.timelineStart <= 0.05;
+    const introExpansionDelta = newDuration - targetClip.timelineDuration;
+
     const updatedTracks = timeline.tracks.map((track, tIdx) => {
-      if (tIdx !== targetTrackIndex) return track;
-      const updatedClips = track.clips.map((c, cIdx) => {
-        if (cIdx === targetClipIndex) return trimmedClip;
-        if (ripple && c.timelineStart >= oldEnd - 0.001) {
-          return {
-            ...c,
-            timelineStart: Math.max(0, c.timelineStart - durationDelta),
-          };
-        }
-        return c;
-      });
-      return { ...track, clips: updatedClips };
+      if (tIdx === targetTrackIndex) {
+        const updatedClips = track.clips.map((c, cIdx) => {
+          if (cIdx === targetClipIndex) return trimmedClip;
+          if (ripple && c.timelineStart >= oldEnd - 0.001) {
+            return {
+              ...c,
+              timelineStart: Math.max(0, c.timelineStart - durationDelta),
+            };
+          }
+          return c;
+        });
+        return { ...track, clips: updatedClips };
+      }
+
+      // If an Intro title card at 0:00 was trimmed/expanded, shift downstream video clips
+      if (isIntroTitleCard && track.type === 'video') {
+        const shiftedClips = track.clips.map((c) => {
+          if (c.timelineStart >= oldEnd - 0.2) {
+            return {
+              ...c,
+              timelineStart: Math.max(0, Number((c.timelineStart + introExpansionDelta).toFixed(3))),
+            };
+          }
+          return c;
+        });
+        return { ...track, clips: shiftedClips };
+      }
+
+      return track;
     });
 
     const updatedTimeline: Timeline = {
@@ -716,6 +739,9 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
             transitions: updates.transitions
               ? { ...(clip.transitions || {}), ...updates.transitions }
               : clip.transitions,
+            audioFade: updates.audioFade
+              ? { ...(clip.audioFade || {}), ...updates.audioFade }
+              : clip.audioFade,
           };
         }
 

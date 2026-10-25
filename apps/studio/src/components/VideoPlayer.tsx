@@ -206,23 +206,41 @@ export function VideoPlayer() {
     const isDucked = hasSpeech && duckingEnabled;
     const baseVol = Math.min(1.0, Math.max(0, (activeMusicClip.volume ?? 0.8) * (isMuted ? 0 : volume)));
 
+    // Calculate fade in and fade out envelope
+    let fadeMultiplier = 1.0;
+    if (activeMusicClip.audioFade) {
+      const musicElapsed = currentTime - activeMusicClip.timelineStart;
+      const musicRemaining = activeMusicClip.timelineStart + activeMusicClip.timelineDuration - currentTime;
+      const fadeInSec = activeMusicClip.audioFade.in ?? 0;
+      const fadeOutSec = activeMusicClip.audioFade.out ?? 0;
+
+      if (fadeInSec > 0 && musicElapsed >= 0 && musicElapsed < fadeInSec) {
+        fadeMultiplier *= Math.max(0, musicElapsed / fadeInSec);
+      }
+      if (fadeOutSec > 0 && musicRemaining >= 0 && musicRemaining < fadeOutSec) {
+        fadeMultiplier *= Math.max(0, musicRemaining / fadeOutSec);
+      }
+    }
+
+    const effectiveBgmVol = baseVol * fadeMultiplier;
+
     // If sourcePath is a playable media blob or custom URL, try audio element first
     const audioUrl = activeMusicClip.sourcePath || (activeMusicClip.sourceId.startsWith('http') ? activeMusicClip.sourceId : null);
     if (audioUrl && bgmAudioRef.current) {
       const bgm = bgmAudioRef.current;
-      const targetBgmVol = isDucked ? baseVol * 0.2 : baseVol;
+      const targetBgmVol = isDucked ? effectiveBgmVol * 0.2 : effectiveBgmVol;
       bgm.volume = Math.min(1.0, Math.max(0, targetBgmVol));
       if (bgm.paused) {
         bgm.play().catch(() => {
           // Fallback to Web Audio Synth if CORS or format fails
-          bgmSynth.start(activeMusicClip.sourceId, baseVol, isDucked);
+          bgmSynth.start(activeMusicClip.sourceId, effectiveBgmVol, isDucked);
         });
       }
     } else {
       // Use synthesized Web Audio BGM
-      bgmSynth.start(activeMusicClip.sourceId, baseVol, isDucked);
+      bgmSynth.start(activeMusicClip.sourceId, effectiveBgmVol, isDucked);
     }
-  }, [activeMusicClip, isPlaying, activeClipInfo, volume, isMuted]);
+  }, [activeMusicClip, isPlaying, activeClipInfo, volume, isMuted, currentTime]);
 
   // Direct scrub / playhead sync when paused
   useEffect(() => {
@@ -368,7 +386,11 @@ export function VideoPlayer() {
     }
   };
 
-  const combinedFilter = `${filterStyle} brightness(${transBrightness}) ${
+  const clipBrightness = activeClipInfo?.clip.brightness ?? 1.0;
+  const clipContrast = activeClipInfo?.clip.contrast ?? 1.0;
+  const clipSaturation = activeClipInfo?.clip.saturation ?? 1.0;
+
+  const combinedFilter = `${filterStyle} brightness(${transBrightness * clipBrightness}) contrast(${clipContrast}) saturate(${clipSaturation}) ${
     transBlur > 0 ? `blur(${transBlur}px)` : ''
   }`.trim();
 
