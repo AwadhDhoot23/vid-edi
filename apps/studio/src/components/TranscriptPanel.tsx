@@ -215,7 +215,7 @@ export function TranscriptPanel() {
   };
 
   return (
-    <div className="w-80 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] flex flex-col h-full shrink-0 select-none relative">
+    <div className="w-full bg-transparent flex flex-col h-full overflow-hidden select-none relative">
       {/* Panel Header */}
       <div className="p-3 border-b border-[var(--border-subtle)] flex items-center justify-between">
         <div className="flex items-center gap-2">

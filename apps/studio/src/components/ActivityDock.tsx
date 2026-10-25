@@ -133,17 +133,25 @@ export function ActivityDock() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+  const [transitionTarget, setTransitionTarget] = useState<'in' | 'out' | 'both'>('in');
+  const [transitionDuration, setTransitionDuration] = useState<number>(0.8);
+  const [customTitle, setCustomTitle] = useState('MAIN TITLE');
+  const [customSubtitle, setCustomSubtitle] = useState('Episode Subtitle or Topic');
 
   const {
+    timeline,
     projectAssets,
     addProjectAsset,
     removeProjectAsset,
     addAssetToTimeline,
     addTextOverlayClip,
     addTitleCardClip,
+    insertTitleCardAtStart,
+    appendTitleCardAtEnd,
     activeFilter,
     setActiveFilter,
     selectedClipId,
+    setSelectedClipId,
     updateClipProperties,
     setMediaSource,
     activeSource,
@@ -317,19 +325,29 @@ export function ActivityDock() {
         </div>
       </div>
 
-      {/* Expanded Content Drawer (Width: 280px) */}
+      {/* Expanded Content Drawer (Width: 420px for AI/Transcript, 320px for tools) */}
       {isOpen && (
-        <div className="w-72 bg-[var(--bg-surface)] flex flex-col overflow-hidden animate-spring-in">
+        <div
+          className={`${
+            activeTab === 'ai' || activeTab === 'transcript'
+              ? 'w-96 md:w-[420px]'
+              : 'w-80'
+          } bg-[var(--bg-surface)] flex flex-col overflow-hidden transition-all duration-200 border-r border-[var(--border-subtle)] shadow-xs animate-spring-in`}
+        >
           {/* Header Title */}
-          <div className="h-10 px-3.5 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-elevated)]/50">
+          <div className="h-10 px-3.5 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-elevated)]/50 shrink-0">
             <span className="text-xs font-semibold text-[var(--text-primary)] tracking-wide uppercase">
               {navItems.find((n) => n.id === activeTab)?.label}
             </span>
             <span className="text-[10px] text-[var(--text-tertiary)] font-mono">Vid-Edi Studio</span>
           </div>
 
-          {/* Drawer Body */}
-          <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+          {/* Drawer Body: 0 padding for seamless AI and Transcript panels, padded for other tools */}
+          <div
+            className={`flex-1 flex flex-col overflow-hidden ${
+              activeTab === 'ai' || activeTab === 'transcript' ? 'p-0' : 'p-3 overflow-y-auto gap-3'
+            }`}
+          >
             {/* 1. MEDIA BIN */}
             {activeTab === 'media' && (
               <div className="flex flex-col gap-3">
@@ -431,53 +449,145 @@ export function ActivityDock() {
             {/* 3. TEXT & TITLES */}
             {activeTab === 'text' && (
               <div className="flex flex-col gap-4">
-                {/* Title Cards Section */}
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
-                    Full-Frame Title Cards
+                {/* Title Card Position Controls */}
+                <div className="p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] flex flex-col gap-2.5 shadow-xs">
+                  <span className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider">
+                    Full-Frame Title Card Builder
                   </span>
-                  <div className="grid grid-cols-1 gap-2">
+                  <div className="flex flex-col gap-1.5">
+                    <input
+                      type="text"
+                      value={customTitle}
+                      onChange={(e) => setCustomTitle(e.target.value)}
+                      placeholder="Title Heading (e.g. EPISODE 1)"
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-primary)] focus:outline-hidden"
+                    />
+                    <input
+                      type="text"
+                      value={customSubtitle}
+                      onChange={(e) => setCustomSubtitle(e.target.value)}
+                      placeholder="Subtitle (e.g. The Beginning)"
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-base)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] focus:outline-hidden"
+                    />
+                  </div>
+
+                  {/* 3 Smart Placement Buttons: Intro 0:00, Playhead, Outro End */}
+                  <div className="grid grid-cols-3 gap-1.5 pt-1">
                     <button
                       type="button"
                       onClick={() =>
-                        addTitleCardClip({
-                          title: 'CHAPTER 1',
-                          subtitle: 'The Journey Begins Here',
-                          theme: 'onyx',
-                          backgroundColor: '#0A0A0A',
-                          textColor: '#FFFFFF',
-                        })
+                        insertTitleCardAtStart(
+                          {
+                            title: customTitle || 'EPISODE 1',
+                            subtitle: customSubtitle || 'The Journey Begins Here',
+                            theme: 'onyx',
+                            backgroundColor: '#0A0A0A',
+                            textColor: '#FFFFFF',
+                          },
+                          3.5
+                        )
                       }
-                      className="p-3 rounded-xl border border-[var(--border-strong)] bg-zinc-950 text-left hover:border-amber-400/50 transition-all cursor-pointer group"
+                      className="p-1.5 rounded-lg bg-[var(--accent-primary)] hover:brightness-110 text-white flex flex-col items-center text-center cursor-pointer shadow-xs transition-all"
+                      title="Shifts video right and inserts intro at 0:00 without hiding video"
                     >
-                      <div className="text-xs font-bold text-white tracking-widest uppercase">
-                        CHAPTER 1
-                      </div>
-                      <div className="text-[11px] text-zinc-400 mt-0.5">The Journey Begins Here</div>
-                      <span className="text-[9px] text-amber-400 font-mono mt-1.5 block">
-                        + Add Onyx Title (3.5s)
-                      </span>
+                      <span className="text-[11px] font-bold">🎬 Intro</span>
+                      <span className="text-[9px] opacity-85">At 0:00s</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() =>
                         addTitleCardClip({
-                          title: 'KEY INSIGHT',
-                          subtitle: 'Why Video Editors Win in 2026',
+                          title: customTitle || 'KEY TAKEAWAY',
+                          subtitle: customSubtitle || 'Core Concept',
                           theme: 'minimal',
                           backgroundColor: '#1E1B4B',
                           textColor: '#E0E7FF',
                         })
                       }
-                      className="p-3 rounded-xl border border-[var(--border-strong)] bg-indigo-950/80 text-left hover:border-indigo-400/50 transition-all cursor-pointer group"
+                      className="p-1.5 rounded-lg bg-[var(--bg-base)] border border-[var(--border-strong)] hover:border-[var(--accent-primary)] text-[var(--text-primary)] flex flex-col items-center text-center cursor-pointer transition-all"
+                      title="Add title card at current playhead position"
+                    >
+                      <span className="text-[11px] font-bold">⏱ Playhead</span>
+                      <span className="text-[9px] text-[var(--text-tertiary)]">Current time</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        appendTitleCardAtEnd(
+                          {
+                            title: customTitle || 'THANKS FOR WATCHING',
+                            subtitle: customSubtitle || 'Subscribe & Follow',
+                            theme: 'gradient',
+                            backgroundColor: '#312E81',
+                            textColor: '#FFFFFF',
+                          },
+                          3.5
+                        )
+                      }
+                      className="p-1.5 rounded-lg bg-[var(--bg-base)] border border-[var(--border-strong)] hover:border-amber-400 text-[var(--text-primary)] flex flex-col items-center text-center cursor-pointer transition-all"
+                      title="Appends outro title card at the end of sequence"
+                    >
+                      <span className="text-[11px] font-bold">🏁 Outro</span>
+                      <span className="text-[9px] text-amber-500">At End</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Pre-styled Title Card Presets */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+                    Quick Title Presets
+                  </span>
+                  <div className="grid grid-cols-1 gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        insertTitleCardAtStart(
+                          {
+                            title: 'CHAPTER 1',
+                            subtitle: 'The Journey Begins Here',
+                            theme: 'onyx',
+                            backgroundColor: '#0A0A0A',
+                            textColor: '#FFFFFF',
+                          },
+                          3.5
+                        )
+                      }
+                      className="p-2.5 rounded-xl border border-[var(--border-strong)] bg-zinc-950 text-left hover:border-amber-400/50 transition-all cursor-pointer group"
+                    >
+                      <div className="text-xs font-bold text-white tracking-widest uppercase">
+                        CHAPTER 1 • ONYX DARK
+                      </div>
+                      <div className="text-[11px] text-zinc-400 mt-0.5">The Journey Begins Here</div>
+                      <span className="text-[9px] text-amber-400 font-mono mt-1 block">
+                        + Insert as Intro at 0:00 (3.5s)
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        appendTitleCardAtEnd(
+                          {
+                            title: 'KEY INSIGHT',
+                            subtitle: 'Why Video Editors Win in 2026',
+                            theme: 'minimal',
+                            backgroundColor: '#1E1B4B',
+                            textColor: '#E0E7FF',
+                          },
+                          3.5
+                        )
+                      }
+                      className="p-2.5 rounded-xl border border-[var(--border-strong)] bg-indigo-950/80 text-left hover:border-indigo-400/50 transition-all cursor-pointer group"
                     >
                       <div className="text-xs font-bold text-indigo-200 tracking-wider uppercase">
-                        KEY INSIGHT
+                        KEY INSIGHT • VELVET
                       </div>
                       <div className="text-[11px] text-indigo-300/80 mt-0.5">Why Video Editors Win in 2026</div>
-                      <span className="text-[9px] text-indigo-400 font-mono mt-1.5 block">
-                        + Add Minimal Indigo (3.5s)
+                      <span className="text-[9px] text-indigo-400 font-mono mt-1 block">
+                        + Append as Outro at End (3.5s)
                       </span>
                     </button>
                   </div>
@@ -595,23 +705,92 @@ export function ActivityDock() {
               </div>
             )}
 
-            {/* 5. TRANSITIONS */}
+            {/* 5. TRANSITIONS (Incoming & Outgoing Visual Effects) */}
             {activeTab === 'transitions' && (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
+                {/* Direction Selector (In vs Out vs Both) */}
+                <div className="p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] flex flex-col gap-2">
+                  <span className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+                    Transition Position
+                  </span>
+                  <div className="grid grid-cols-3 gap-1">
+                    {[
+                      { id: 'in' as const, label: '▶ Incoming (In)' },
+                      { id: 'out' as const, label: 'Outgoing (Out) ◀' },
+                      { id: 'both' as const, label: 'Both (In & Out)' },
+                    ].map((btn) => (
+                      <button
+                        key={btn.id}
+                        type="button"
+                        onClick={() => setTransitionTarget(btn.id)}
+                        className={`py-1 px-1.5 rounded-lg text-[10px] font-semibold transition-all cursor-pointer text-center ${
+                          transitionTarget === btn.id
+                            ? 'bg-[var(--accent-primary)] text-white shadow-xs'
+                            : 'bg-[var(--bg-base)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        }`}
+                      >
+                        {btn.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Duration Selector */}
+                  <div className="flex items-center justify-between pt-1 border-t border-[var(--border-subtle)]">
+                    <span className="text-[10px] text-[var(--text-secondary)] font-medium">Duration:</span>
+                    <div className="flex items-center gap-1">
+                      {[0.5, 0.8, 1.0, 1.5].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setTransitionDuration(d)}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono cursor-pointer ${
+                            transitionDuration === d
+                              ? 'bg-[var(--accent-primary)] text-white font-bold'
+                              : 'bg-[var(--bg-base)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+                          }`}
+                        >
+                          {d}s
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 <span className="text-[11px] text-[var(--text-secondary)] font-medium">
-                  Click a transition to apply between clips:
+                  Click a transition to apply to selected clip:
                 </span>
+
                 <div className="flex flex-col gap-2">
                   {TRANSITION_PRESETS.map((trans) => (
                     <button
                       key={trans.type}
                       type="button"
                       onClick={() => {
-                        if (selectedClipId) {
-                          updateClipProperties(selectedClipId, {
-                            transition: { type: trans.type, duration: trans.duration },
-                          });
+                        const targetClipId =
+                          selectedClipId ||
+                          timeline.tracks.find((t) => t.type === 'video')?.clips[0]?.id;
+                        if (!targetClipId) {
+                          alert('Please load a video clip first to apply transitions.');
+                          return;
                         }
+                        setSelectedClipId(targetClipId);
+                        const targetClip = timeline.tracks
+                          .flatMap((t) => t.clips)
+                          .find((c) => c.id === targetClipId);
+                        const existingTransitions = targetClip?.transitions || {};
+                        const newTransitions = {
+                          ...existingTransitions,
+                          ...(transitionTarget === 'in' || transitionTarget === 'both'
+                            ? { in: { type: trans.type, duration: transitionDuration } }
+                            : {}),
+                          ...(transitionTarget === 'out' || transitionTarget === 'both'
+                            ? { out: { type: trans.type, duration: transitionDuration } }
+                            : {}),
+                        };
+                        updateClipProperties(targetClipId, {
+                          transitions: newTransitions,
+                          transition: { type: trans.type, duration: transitionDuration },
+                        });
                       }}
                       className="p-2.5 rounded-xl border border-[var(--border-subtle)] hover:border-[var(--accent-primary)] bg-[var(--bg-elevated)] flex items-center justify-between text-left transition-all cursor-pointer group"
                     >
@@ -622,7 +801,7 @@ export function ActivityDock() {
                         <div className="text-[10px] text-[var(--text-tertiary)]">{trans.desc}</div>
                       </div>
                       <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[var(--bg-base)] text-[var(--accent-primary)] font-medium">
-                        {trans.duration}s
+                        Apply {transitionTarget.toUpperCase()}
                       </span>
                     </button>
                   ))}

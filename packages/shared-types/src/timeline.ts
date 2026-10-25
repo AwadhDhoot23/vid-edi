@@ -96,7 +96,12 @@ export interface Clip {
   textOverlay?: TextOverlayConfig;
   titleCard?: TitleCardConfig;
   audioDucking?: AudioDuckingConfig;
+  sourcePath?: string;
   transition?: Transition;
+  transitions?: {
+    in?: Transition;
+    out?: Transition;
+  };
 }
 
 export interface Effect {

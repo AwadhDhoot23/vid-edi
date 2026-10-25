@@ -15,6 +15,7 @@ export function PropertyInspector() {
     timeline,
     selectedClipId,
     updateClipProperties,
+    moveClip,
     setAspectRatio,
     activeFilter,
     setActiveFilter,
@@ -196,6 +197,78 @@ export function PropertyInspector() {
                   </div>
                 </div>
 
+                {/* Video Transitions (Incoming & Outgoing) */}
+                <div className="flex flex-col gap-2 p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]">
+                  <span className="font-semibold text-[var(--text-secondary)] uppercase tracking-wider text-[10px]">
+                    Transitions
+                  </span>
+
+                  {/* Incoming Transition */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-[var(--text-secondary)]">▶ Incoming (In)</span>
+                      <span className="font-mono text-[10px] text-[var(--accent-primary)]">
+                        {selectedClip.transitions?.in?.duration ?? 0.8}s
+                      </span>
+                    </div>
+                    <select
+                      value={selectedClip.transitions?.in?.type || selectedClip.transition?.type || 'none'}
+                      onChange={(e) => {
+                        const type = e.target.value;
+                        const dur = selectedClip?.transitions?.in?.duration || 0.8;
+                        const newIn =
+                          type === 'none'
+                            ? undefined
+                            : { type: type as any, duration: dur };
+                        updateClipProperties(selectedClip!.id, {
+                          transitions: { ...selectedClip!.transitions, in: newIn },
+                          transition: newIn,
+                        });
+                      }}
+                      className="w-full p-1.5 rounded-md bg-[var(--bg-base)] border border-[var(--border-strong)] text-xs text-[var(--text-primary)] cursor-pointer"
+                    >
+                      <option value="none">None (Cut)</option>
+                      <option value="crossfade">Crossfade (Blend)</option>
+                      <option value="dipToBlack">Dip to Black</option>
+                      <option value="dipToWhite">Dip to White (Flash)</option>
+                      <option value="slideLeft">Slide Left (Push)</option>
+                      <option value="zoomBlur">Zoom Blur (Punch)</option>
+                    </select>
+                  </div>
+
+                  {/* Outgoing Transition */}
+                  <div className="flex flex-col gap-1 mt-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-[var(--text-secondary)]">Outgoing (Out) ◀</span>
+                      <span className="font-mono text-[10px] text-[var(--accent-primary)]">
+                        {selectedClip.transitions?.out?.duration ?? 0.8}s
+                      </span>
+                    </div>
+                    <select
+                      value={selectedClip.transitions?.out?.type || 'none'}
+                      onChange={(e) => {
+                        const type = e.target.value;
+                        const dur = selectedClip?.transitions?.out?.duration || 0.8;
+                        const newOut =
+                          type === 'none'
+                            ? undefined
+                            : { type: type as any, duration: dur };
+                        updateClipProperties(selectedClip!.id, {
+                          transitions: { ...selectedClip!.transitions, out: newOut },
+                        });
+                      }}
+                      className="w-full p-1.5 rounded-md bg-[var(--bg-base)] border border-[var(--border-strong)] text-xs text-[var(--text-primary)] cursor-pointer"
+                    >
+                      <option value="none">None (Cut)</option>
+                      <option value="crossfade">Crossfade (Blend)</option>
+                      <option value="dipToBlack">Dip to Black</option>
+                      <option value="dipToWhite">Dip to White (Flash)</option>
+                      <option value="slideLeft">Slide Left (Push)</option>
+                      <option value="zoomBlur">Zoom Blur (Punch)</option>
+                    </select>
+                  </div>
+                </div>
+
                 {/* Reset Transform */}
                 <Button
                   variant="ghost"
@@ -217,6 +290,44 @@ export function PropertyInspector() {
             {/* SCENARIO 2: TEXT / TITLE CARD SELECTED */}
             {selectedClip && isTextOrTitleClip && (
               <div className="flex flex-col gap-4">
+                {/* Timeline Position & Duration Slider */}
+                <div className="flex flex-col gap-2 p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-[var(--text-secondary)]">Timeline Position</span>
+                    <span className="font-mono text-xs text-[var(--accent-primary)] font-bold">
+                      {selectedClip.timelineStart.toFixed(1)}s
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max={Math.max(timeline.duration, 30)}
+                    step="0.1"
+                    value={selectedClip.timelineStart}
+                    onChange={(e) => moveClip(selectedClip!.id, parseFloat(e.target.value))}
+                    className="w-full accent-[var(--accent-primary)] h-1.5 rounded-lg bg-[var(--border-strong)] cursor-pointer"
+                  />
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-[11px] font-semibold text-[var(--text-secondary)]">Duration</span>
+                    <span className="font-mono text-xs text-[var(--text-primary)] font-bold">
+                      {selectedClip.timelineDuration.toFixed(1)}s
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1.0"
+                    max="15.0"
+                    step="0.5"
+                    value={selectedClip.timelineDuration}
+                    onChange={(e) =>
+                      updateClipProperties(selectedClip!.id, {
+                        timelineDuration: parseFloat(e.target.value),
+                      })
+                    }
+                    className="w-full accent-[var(--accent-primary)] h-1.5 rounded-lg bg-[var(--border-strong)] cursor-pointer"
+                  />
+                </div>
+
                 {/* Title Card Editor */}
                 {selectedClip.titleCard && (
                   <div className="flex flex-col gap-3">

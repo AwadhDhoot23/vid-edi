@@ -43,11 +43,115 @@ export function getFilterCss(filterName?: string): string {
   }
 }
 
+// Web Audio Synthesizer for 100% reliable, zero-CORS ambient background music with auto-ducking
+class WebAudioBgmSynth {
+  private ctx: AudioContext | null = null;
+  private gainNode: GainNode | null = null;
+  private isRunning = false;
+  private loopInterval: number | null = null;
+
+  start(presetId: string, baseVol: number, ducked: boolean) {
+    if (this.isRunning) {
+      this.updateVolume(baseVol, ducked);
+      return;
+    }
+
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      this.ctx = new AudioCtx();
+      this.gainNode = this.ctx.createGain();
+      const targetGain = baseVol * (ducked ? 0.2 : 0.8) * 0.12;
+      this.gainNode.gain.setValueAtTime(Math.max(0.001, targetGain), this.ctx.currentTime);
+      this.gainNode.connect(this.ctx.destination);
+      this.isRunning = true;
+
+      const chordFreqs = presetId.includes('synthwave')
+        ? [
+            [220, 261.63, 329.63],
+            [174.61, 220, 261.63],
+            [196, 246.94, 293.66],
+            [164.81, 207.65, 246.94],
+          ]
+        : [
+            [261.63, 329.63, 392.0],
+            [220.0, 261.63, 329.63],
+            [174.61, 220.0, 261.63],
+            [196.0, 246.94, 293.66],
+          ];
+
+      let chordIdx = 0;
+      const playChord = () => {
+        if (!this.ctx || !this.gainNode || !this.isRunning) return;
+        const freqs = chordFreqs[chordIdx % chordFreqs.length]!;
+        chordIdx++;
+
+        freqs.forEach((freq) => {
+          if (!this.ctx || !this.gainNode) return;
+          const osc = this.ctx.createOscillator();
+          const noteGain = this.ctx.createGain();
+          osc.type = presetId.includes('synthwave') ? 'sawtooth' : 'sine';
+          osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(
+            presetId.includes('synthwave') ? 1100 : 750,
+            this.ctx.currentTime
+          );
+
+          noteGain.gain.setValueAtTime(0.001, this.ctx.currentTime);
+          noteGain.gain.exponentialRampToValueAtTime(0.18, this.ctx.currentTime + 0.35);
+          noteGain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 2.2);
+
+          osc.connect(filter);
+          filter.connect(noteGain);
+          noteGain.connect(this.gainNode);
+
+          osc.start();
+          osc.stop(this.ctx.currentTime + 2.3);
+        });
+      };
+
+      playChord();
+      this.loopInterval = window.setInterval(playChord, 2200);
+    } catch (e) {
+      console.warn('WebAudioBgmSynth error:', e);
+    }
+  }
+
+  updateVolume(baseVol: number, ducked: boolean) {
+    if (!this.ctx || !this.gainNode) return;
+    const targetGain = baseVol * (ducked ? 0.2 : 0.8) * 0.12;
+    this.gainNode.gain.setTargetAtTime(Math.max(0.0001, targetGain), this.ctx.currentTime, 0.1);
+  }
+
+  stop() {
+    this.isRunning = false;
+    if (this.loopInterval) {
+      clearInterval(this.loopInterval);
+      this.loopInterval = null;
+    }
+    if (this.ctx) {
+      try {
+        void this.ctx.close();
+      } catch {}
+      this.ctx = null;
+      this.gainNode = null;
+    }
+  }
+}
+
+const bgmSynth = new WebAudioBgmSynth();
+
 export function VideoPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgmAudioRef = useRef<HTMLAudioElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [volume, setVolume] = useState(1);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [showCaptions, setShowCaptions] = useState(true);
 
@@ -99,14 +203,81 @@ export function VideoPlayer() {
     (c) => currentTime >= c.timelineStart && currentTime < c.timelineStart + c.timelineDuration
   );
 
+  // Animated Transitions (In & Out)
+  const inTransition = activeClipInfo?.clip.transitions?.in || activeClipInfo?.clip.transition;
+  const outTransition = activeClipInfo?.clip.transitions?.out;
+
+  let transOpacity = 1;
+  let transBrightness = 1;
+  let transTranslateX = 0;
+  let transScale = 1;
+  let transBlur = 0;
+
+  if (activeClipInfo) {
+    const clipStart = activeClipInfo.clip.timelineStart;
+    const clipEnd = clipStart + activeClipInfo.clip.timelineDuration;
+    const elapsed = currentTime - clipStart;
+    const remaining = clipEnd - currentTime;
+
+    // Incoming transition (at clip start)
+    if (inTransition && inTransition.duration > 0 && elapsed >= 0 && elapsed <= inTransition.duration) {
+      const p = Math.min(1, Math.max(0, elapsed / inTransition.duration));
+      switch (inTransition.type) {
+        case 'crossfade':
+        case 'fade':
+          transOpacity *= p;
+          break;
+        case 'dipToBlack':
+          transBrightness *= p;
+          break;
+        case 'dipToWhite':
+          transBrightness *= 1 + (1 - p) * 2.5;
+          break;
+        case 'slideLeft':
+          transTranslateX += (1 - p) * 100;
+          break;
+        case 'zoomBlur':
+          transScale *= 1 + (1 - p) * 0.35;
+          transBlur = Math.max(transBlur, (1 - p) * 10);
+          break;
+      }
+    }
+
+    // Outgoing transition (at clip end)
+    if (outTransition && outTransition.duration > 0 && remaining >= 0 && remaining <= outTransition.duration) {
+      const p = Math.min(1, Math.max(0, remaining / outTransition.duration));
+      switch (outTransition.type) {
+        case 'crossfade':
+        case 'fade':
+          transOpacity *= p;
+          break;
+        case 'dipToBlack':
+          transBrightness *= p;
+          break;
+        case 'dipToWhite':
+          transBrightness *= 1 + (1 - p) * 2.5;
+          break;
+        case 'slideLeft':
+          transTranslateX -= (1 - p) * 100;
+          break;
+        case 'zoomBlur':
+          transScale *= 1 + (1 - p) * 0.35;
+          transBlur = Math.max(transBlur, (1 - p) * 10);
+          break;
+      }
+    }
+  }
+
   // Filter & Transform calculations
   const currentFilterName = activeClipInfo?.clip.colorFilter || activeFilter || 'none';
   const filterStyle = getFilterCss(currentFilterName);
   const transform = activeClipInfo?.clip.transform;
-  const scale = transform?.scale ?? 1.0;
-  const posX = transform?.positionX ?? 0;
+  const baseScale = transform?.scale ?? 1.0;
+  const finalScale = baseScale * transScale;
+  const posX = (transform?.positionX ?? 0) + transTranslateX;
   const posY = transform?.positionY ?? 0;
-  const opacity = transform?.opacity ?? 1.0;
+  const baseOpacity = transform?.opacity ?? 1.0;
+  const finalOpacity = baseOpacity * transOpacity;
 
   // Aspect ratio detection
   const is916 = timeline.resolution.height > timeline.resolution.width;
@@ -121,24 +292,35 @@ export function VideoPlayer() {
     video.muted = isMuted;
   }, [volume, isMuted]);
 
-  // Sync BGM audio element with ducking
+  // Sync BGM audio with Web Audio Synth and HTML Audio element
   useEffect(() => {
-    const bgm = bgmAudioRef.current;
-    if (!bgm) return;
+    if (!activeMusicClip || !isPlaying) {
+      bgmSynth.stop();
+      if (bgmAudioRef.current && !bgmAudioRef.current.paused) {
+        bgmAudioRef.current.pause();
+      }
+      return;
+    }
 
-    if (activeMusicClip && isPlaying) {
+    const hasSpeech = activeClipInfo !== null;
+    const duckingEnabled = activeMusicClip.audioDucking?.enabled ?? true;
+    const isDucked = hasSpeech && duckingEnabled;
+    const baseVol = (activeMusicClip.volume ?? 0.8) * (isMuted ? 0 : volume);
+
+    // If sourcePath is a playable media blob or custom URL, try audio element first
+    const audioUrl = activeMusicClip.sourcePath || (activeMusicClip.sourceId.startsWith('http') ? activeMusicClip.sourceId : null);
+    if (audioUrl && bgmAudioRef.current) {
+      const bgm = bgmAudioRef.current;
+      bgm.volume = isDucked ? baseVol * 0.2 : baseVol;
       if (bgm.paused) {
-        void bgm.play().catch(() => {});
+        bgm.play().catch(() => {
+          // Fallback to Web Audio Synth if CORS or format fails
+          bgmSynth.start(activeMusicClip.sourceId, baseVol, isDucked);
+        });
       }
-      // Apply speech ducking (-14dB = ~0.2 volume) if dialogue video is active
-      const hasSpeech = activeClipInfo !== null;
-      const duckingEnabled = activeMusicClip.audioDucking?.enabled ?? true;
-      const baseVol = (activeMusicClip.volume ?? 0.8) * (isMuted ? 0 : volume);
-      bgm.volume = hasSpeech && duckingEnabled ? baseVol * 0.2 : baseVol;
     } else {
-      if (!bgm.paused) {
-        bgm.pause();
-      }
+      // Use synthesized Web Audio BGM
+      bgmSynth.start(activeMusicClip.sourceId, baseVol, isDucked);
     }
   }, [activeMusicClip, isPlaying, activeClipInfo, volume, isMuted]);
 
@@ -159,7 +341,7 @@ export function VideoPlayer() {
     }
   }, [currentTime, activeClipInfo, isPlaying]);
 
-  // Virtual Timeline Playback loop: skips deleted clips and advances smoothly
+  // Stutter-free virtual playback loop: HTML5 hardware clock drives time, 0 lag at any speed
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !isPlaying) {
@@ -174,39 +356,75 @@ export function VideoPlayer() {
       const deltaSec = (now - lastTimestamp) / 1000;
       lastTimestamp = now;
 
-      const rate = video.playbackRate || 1;
+      const rate = playbackRate;
       const currentTlTime = useTimelineStore.getState().currentTime;
-      const newTlTime = currentTlTime + deltaSec * rate;
+      const activeInfo = getActiveClipAtTime(timeline.tracks, currentTlTime);
 
-      if (newTlTime >= timeline.duration) {
-        setCurrentTime(timeline.duration);
-        setIsPlaying(false);
-        return;
-      }
-
-      const activeInfo = getActiveClipAtTime(timeline.tracks, newTlTime);
       if (activeInfo) {
         if (video.paused) {
           video.currentTime = activeInfo.sourceTime;
+          video.playbackRate = rate;
           void video.play().catch(() => {});
-        } else if (Math.abs(video.currentTime - activeInfo.sourceTime) > 0.12) {
-          video.currentTime = activeInfo.sourceTime;
+        } else if (video.playbackRate !== rate) {
+          video.playbackRate = rate;
         }
-        setCurrentTime(newTlTime);
-      } else {
-        // Ripple skip: jump directly to the start of the next clip
-        const nextStart = getNextClipStartTime(timeline.tracks, newTlTime);
-        if (nextStart !== null && nextStart < timeline.duration) {
-          setCurrentTime(nextStart);
-          const nextClipInfo = getActiveClipAtTime(timeline.tracks, nextStart);
-          if (nextClipInfo) {
-            video.currentTime = nextClipInfo.sourceTime;
+
+        // Only correct video time if drift exceeds 0.35s (e.g. from a click seek)
+        const expectedSource = activeInfo.sourceTime;
+        if (Math.abs(video.currentTime - expectedSource) > 0.35) {
+          video.currentTime = expectedSource;
+        }
+
+        // Smoothly derive timeline time from video playback
+        const elapsedInClip = (video.currentTime - activeInfo.clip.sourceStart) / (activeInfo.clip.playbackRate || 1);
+        const derivedTlTime = activeInfo.clip.timelineStart + elapsedInClip;
+
+        // Clip boundary detection
+        if (
+          video.currentTime >= activeInfo.clip.sourceEnd - 0.04 ||
+          derivedTlTime >= activeInfo.clip.timelineStart + activeInfo.clip.timelineDuration
+        ) {
+          const nextStart = getNextClipStartTime(
+            timeline.tracks,
+            activeInfo.clip.timelineStart + activeInfo.clip.timelineDuration
+          );
+          if (nextStart !== null && nextStart < timeline.duration) {
+            setCurrentTime(nextStart);
+            const nextClip = getActiveClipAtTime(timeline.tracks, nextStart);
+            if (nextClip) {
+              video.currentTime = nextClip.sourceTime;
+            } else {
+              video.pause();
+            }
+          } else {
+            setCurrentTime(timeline.duration);
+            setIsPlaying(false);
+            return;
           }
         } else {
+          setCurrentTime(Math.min(timeline.duration, Math.max(0, derivedTlTime)));
+        }
+      } else {
+        // No video clip (e.g. intro title card at 0:00 or timeline gap)
+        if (!video.paused) {
+          video.pause();
+        }
+
+        const newTlTime = currentTlTime + deltaSec * rate;
+        if (newTlTime >= timeline.duration) {
           setCurrentTime(timeline.duration);
           setIsPlaying(false);
           return;
         }
+
+        // Check if playhead reached the next video clip
+        const nextInfo = getActiveClipAtTime(timeline.tracks, newTlTime);
+        if (nextInfo) {
+          video.currentTime = nextInfo.sourceTime;
+          video.playbackRate = rate;
+          void video.play().catch(() => {});
+        }
+        setCurrentTime(newTlTime);
       }
 
       animationFrameId = requestAnimationFrame(tick);
@@ -214,7 +432,7 @@ export function VideoPlayer() {
 
     animationFrameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [isPlaying, timeline.tracks, timeline.duration, setCurrentTime, setIsPlaying]);
+  }, [isPlaying, timeline.tracks, timeline.duration, playbackRate, setCurrentTime, setIsPlaying]);
 
   const stepFrame = (frames: number) => {
     const fps = timeline.fps || 30;
@@ -255,6 +473,10 @@ export function VideoPlayer() {
     }
   };
 
+  const combinedFilter = `${filterStyle} brightness(${transBrightness}) ${
+    transBlur > 0 ? `blur(${transBlur}px)` : ''
+  }`.trim();
+
   return (
     <div
       ref={containerRef}
@@ -264,7 +486,7 @@ export function VideoPlayer() {
       {activeMusicClip && (
         <audio
           ref={bgmAudioRef}
-          src={activeMusicClip.sourceId.startsWith('http') ? activeMusicClip.sourceId : 'https://cdn.freesound.org/previews/573/573381_11861866-lq.mp3'}
+          src={activeMusicClip.sourcePath || undefined}
           loop
           preload="auto"
         />
@@ -294,14 +516,14 @@ export function VideoPlayer() {
               />
             )}
 
-            {/* Main Video Element with Live CSS Filter and Spring Transform */}
+            {/* Main Video Element with Live CSS Filter, Transitions, and Spring Transform */}
             <video
               ref={videoRef}
               src={activeSource.path}
               style={{
-                filter: filterStyle,
-                transform: `scale(${scale}) translate(${posX}px, ${posY}px)`,
-                opacity: activeClipInfo ? opacity : 0.1,
+                filter: combinedFilter,
+                transform: `scale(${finalScale}) translate(${posX}px, ${posY}px)`,
+                opacity: activeClipInfo ? finalOpacity : 0.05,
               }}
               className="max-h-full max-w-full object-contain transition-transform duration-75 relative z-10"
               onEnded={() => setIsPlaying(false)}
@@ -310,20 +532,20 @@ export function VideoPlayer() {
               preload="auto"
             />
 
-            {/* Empty Gap Overlay when playhead is in a cut gap */}
-            {!activeClipInfo && (
+            {/* Empty Gap Overlay when playhead is in a cut gap and NO title card is active */}
+            {!activeClipInfo && !activeTitleCardClip && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 backdrop-blur-xs text-neutral-400 z-20 pointer-events-none p-4 text-center">
                 <Scissors className="w-8 h-8 text-neutral-500 mb-2 opacity-60" />
                 <span className="text-xs font-semibold text-neutral-300 tracking-wide uppercase">
                   Empty Timeline Gap
                 </span>
                 <span className="text-[11px] text-neutral-500 mt-0.5">
-                  Clip trimmed or deleted here — skips to next cut on play
+                  Blank space on timeline — continues playing or skips to next cut
                 </span>
               </div>
             )}
 
-            {/* Full-Frame Title Card Overlay (Task 4.19 & R9) */}
+            {/* Full-Frame Title Card Overlay (Intro / Outro / Middle) */}
             {activeTitleCardClip?.titleCard && (
               <div
                 style={{
@@ -589,17 +811,19 @@ export function VideoPlayer() {
           {/* Speed Selector */}
           <select
             className="text-xs bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-md px-1.5 py-1 text-[var(--text-secondary)] focus:outline-hidden cursor-pointer"
+            value={playbackRate}
             onChange={(e) => {
+              const newRate = parseFloat(e.target.value);
+              setPlaybackRate(newRate);
               if (videoRef.current) {
-                videoRef.current.playbackRate = parseFloat(e.target.value);
+                videoRef.current.playbackRate = newRate;
               }
             }}
-            defaultValue="1"
           >
             <option value="0.5">0.5x</option>
             <option value="1">1.0x</option>
             <option value="1.5">1.5x</option>
-            <option value="2">2.0x</option>
+            <option value="2.0">2.0x</option>
           </select>
 
           {/* Fullscreen Button */}

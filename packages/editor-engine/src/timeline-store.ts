@@ -52,6 +52,9 @@ export interface TimelineStoreState {
   addAssetToTimeline: (asset: ProjectAsset, trackId?: string) => void;
   addTextOverlayClip: (config: TextOverlayConfig, duration?: number) => void;
   addTitleCardClip: (config: TitleCardConfig, duration?: number) => void;
+  insertTitleCardAtStart: (config: TitleCardConfig, duration?: number) => void;
+  appendTitleCardAtEnd: (config: TitleCardConfig, duration?: number) => void;
+  moveClip: (clipId: string, newTimelineStart: number) => void;
   reorderClips: (trackId: string, fromIndex: number, toIndex: number) => void;
   updateClipProperties: (clipId: string, updates: Partial<Clip>) => void;
   setActiveFilter: (filterName: string) => void;
@@ -277,13 +280,12 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
 
     const isLeftTrim = Math.abs(newStart - targetClip.sourceStart) > 0.0001;
     const newDuration = (newEnd - newStart) / targetClip.playbackRate;
-    const oldDuration = targetClip.timelineDuration;
-    const durationDelta = oldDuration - newDuration;
 
-    // For left trim: with ripple, clip stays at its current timelineStart and downstream clips shift left
-    const newTimelineStart = isLeftTrim && ripple
-      ? targetClip.timelineStart
-      : (isLeftTrim ? targetClip.timelineStart + (newStart - targetClip.sourceStart) / targetClip.playbackRate : targetClip.timelineStart);
+    // Left trim: moves timelineStart forward by the trimmed duration, keeping the right edge fixed
+    const deltaStart = (newStart - targetClip.sourceStart) / targetClip.playbackRate;
+    const newTimelineStart = isLeftTrim
+      ? targetClip.timelineStart + deltaStart
+      : targetClip.timelineStart;
 
     const trimmedClip: Clip = {
       ...targetClip,
@@ -294,6 +296,7 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
     };
 
     const oldEnd = targetClip.timelineStart + targetClip.timelineDuration;
+    const durationDelta = targetClip.timelineDuration - newDuration;
 
     const updatedTracks = timeline.tracks.map((track, tIdx) => {
       if (tIdx !== targetTrackIndex) return track;
@@ -406,6 +409,7 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
       id: `clip_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: asset.name,
       sourceId: asset.id,
+      sourcePath: asset.path,
       sourceStart: 0,
       sourceEnd: duration,
       timelineStart: startSec,
@@ -524,6 +528,118 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
     });
   },
 
+  insertTitleCardAtStart: (config: TitleCardConfig, duration = 3.5) => {
+    const { timeline, past } = get();
+    // Shift ALL existing clips on all tracks right by duration seconds
+    const shiftedTracks = timeline.tracks.map((track) => {
+      const shiftedClips = track.clips.map((c) => ({
+        ...c,
+        timelineStart: c.timelineStart + duration,
+      }));
+      return { ...track, clips: shiftedClips };
+    });
+
+    const titleClip: Clip = {
+      id: `title_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: config.title.slice(0, 24) || 'Title Card',
+      sourceId: 'overlay_title',
+      sourceStart: 0,
+      sourceEnd: duration,
+      timelineStart: 0,
+      timelineDuration: duration,
+      effects: [],
+      playbackRate: 1,
+      volume: 1,
+      titleCard: config,
+    };
+
+    const finalTracks = shiftedTracks.map((track) => {
+      if (track.id !== 'track_overlay') return track;
+      return { ...track, clips: [titleClip, ...track.clips] };
+    });
+
+    const newDuration = recalculateTimelineDuration(finalTracks);
+    set({
+      past: [...past, timeline],
+      timeline: {
+        ...timeline,
+        duration: newDuration,
+        tracks: finalTracks,
+      },
+      selectedClipId: titleClip.id,
+      currentTime: 0,
+      future: [],
+    });
+  },
+
+  appendTitleCardAtEnd: (config: TitleCardConfig, duration = 3.5) => {
+    const { timeline, past } = get();
+    const currentEnd = recalculateTimelineDuration(timeline.tracks);
+
+    const titleClip: Clip = {
+      id: `title_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: config.title.slice(0, 24) || 'Outro Title Card',
+      sourceId: 'overlay_title',
+      sourceStart: 0,
+      sourceEnd: duration,
+      timelineStart: currentEnd,
+      timelineDuration: duration,
+      effects: [],
+      playbackRate: 1,
+      volume: 1,
+      titleCard: config,
+    };
+
+    const updatedTracks = timeline.tracks.map((track) => {
+      if (track.id !== 'track_overlay') return track;
+      return { ...track, clips: [...track.clips, titleClip] };
+    });
+
+    const newDuration = recalculateTimelineDuration(updatedTracks);
+    set({
+      past: [...past, timeline],
+      timeline: {
+        ...timeline,
+        duration: newDuration,
+        tracks: updatedTracks,
+      },
+      selectedClipId: titleClip.id,
+      currentTime: currentEnd,
+      future: [],
+    });
+  },
+
+  moveClip: (clipId: string, newTimelineStart: number) => {
+    const { timeline, past } = get();
+    const clampedStart = Math.max(0, newTimelineStart);
+
+    let updated = false;
+    const updatedTracks = timeline.tracks.map((track) => {
+      const updatedClips = track.clips.map((clip) => {
+        if (clip.id !== clipId) return clip;
+        updated = true;
+        return {
+          ...clip,
+          timelineStart: clampedStart,
+        };
+      });
+      return { ...track, clips: updatedClips };
+    });
+
+    if (!updated) return;
+
+    const newDuration = recalculateTimelineDuration(updatedTracks);
+    set({
+      past: [...past, timeline],
+      timeline: {
+        ...timeline,
+        duration: Math.max(newDuration, timeline.duration),
+        tracks: updatedTracks,
+      },
+      future: [],
+    });
+  },
+
   reorderClips: (trackId: string, fromIndex: number, toIndex: number) => {
     const { timeline, past } = get();
     const targetTrack = timeline.tracks.find((t) => t.id === trackId);
@@ -563,14 +679,17 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
             ? { ...(clip.transform || { scale: 1, positionX: 0, positionY: 0, opacity: 1 }), ...updates.transform }
             : clip.transform,
           textOverlay: updates.textOverlay
-            ? { ...clip.textOverlay!, ...updates.textOverlay }
+            ? ({ ...(clip.textOverlay || {}), ...updates.textOverlay } as TextOverlayConfig)
             : clip.textOverlay,
           titleCard: updates.titleCard
-            ? { ...clip.titleCard!, ...updates.titleCard }
+            ? ({ ...(clip.titleCard || {}), ...updates.titleCard } as TitleCardConfig)
             : clip.titleCard,
           audioDucking: updates.audioDucking
-            ? { ...clip.audioDucking!, ...updates.audioDucking }
+            ? { ...(clip.audioDucking || { enabled: true, duckingDb: -14 }), ...updates.audioDucking }
             : clip.audioDucking,
+          transitions: updates.transitions
+            ? { ...(clip.transitions || {}), ...updates.transitions }
+            : clip.transitions,
         };
       });
       return { ...track, clips: updatedClips };
@@ -578,9 +697,14 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
 
     if (!found) return;
 
+    const newDuration = recalculateTimelineDuration(updatedTracks);
     set({
       past: [...past, timeline],
-      timeline: { ...timeline, tracks: updatedTracks },
+      timeline: {
+        ...timeline,
+        duration: Math.max(newDuration, timeline.duration),
+        tracks: updatedTracks,
+      },
       future: [],
     });
   },

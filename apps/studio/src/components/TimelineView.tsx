@@ -41,6 +41,7 @@ export function TimelineView() {
     removeClip,
     trimClip,
     reorderClips,
+    moveClip,
     commitHistorySnapshot,
     activeSource,
     undo,
@@ -82,7 +83,7 @@ export function TimelineView() {
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedClipId) {
           e.preventDefault();
-          removeClip(selectedClipId);
+          removeClip(selectedClipId, false);
         }
       } else if (e.key === 's' || e.key === 'S') {
         if (selectedClipId) {
@@ -121,7 +122,8 @@ export function TimelineView() {
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (draggedClipInfo) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
+    const scrollLeft = e.currentTarget.scrollLeft || containerRef.current?.scrollLeft || 0;
+    const clickX = e.clientX - rect.left + scrollLeft;
     const clickedSeconds = clickX / basePixelsPerSecond;
     setCurrentTime(Math.max(0, Math.min(clickedSeconds, totalDuration)));
   };
@@ -149,14 +151,16 @@ export function TimelineView() {
           0,
           Math.min(initialSourceStart + deltaSec, initialSourceEnd - 0.5)
         );
-        trimClip(clip.id, newStart, initialSourceEnd, false);
+        // ripple = false: left trim advances timelineStart, anchors right edge, leaves blank space on left
+        trimClip(clip.id, newStart, initialSourceEnd, false, false);
       } else {
         const maxSourceDuration = activeSource?.duration ?? Infinity;
         const newEnd = Math.max(
           initialSourceStart + 0.5,
           Math.min(maxSourceDuration, initialSourceEnd + deltaSec)
         );
-        trimClip(clip.id, initialSourceStart, newEnd, false);
+        // ripple = false: right trim shrinks right edge without force-shifting downstream clips
+        trimClip(clip.id, initialSourceStart, newEnd, false, false);
       }
     };
 
@@ -172,23 +176,24 @@ export function TimelineView() {
     window.addEventListener('mouseup', onMouseUp);
   };
 
-  // Direct Pointer Clip Drag-to-Reorder on Video 1 (Task R13)
+  // Direct Pointer Clip Drag: allows free horizontal positioning on any track, plus reorder on Video 1
   const handleClipDragStart = (
     e: React.PointerEvent,
     track: Track,
     clip: Clip,
     fromIndex: number
   ) => {
-    if (track.clips.length <= 1) return;
     e.stopPropagation();
 
     const initialX = e.clientX;
-    let isReordering = false;
+    const initialTimelineStart = clip.timelineStart;
+    let isDragging = false;
+    let mode: 'move' | 'reorder' = 'move';
 
     const onPointerMove = (moveEv: PointerEvent) => {
       const deltaX = moveEv.clientX - initialX;
-      if (!isReordering && Math.abs(deltaX) > 6) {
-        isReordering = true;
+      if (!isDragging && Math.abs(deltaX) > 4) {
+        isDragging = true;
         setDraggedClipInfo({
           clipId: clip.id,
           trackId: track.id,
@@ -198,46 +203,78 @@ export function TimelineView() {
         });
       }
 
-      if (!isReordering) return;
+      if (!isDragging) return;
 
       setDraggedClipInfo((prev) => (prev ? { ...prev, currentX: moveEv.clientX } : null));
 
-      // Calculate candidate insertion target
-      const trackClips = track.clips;
-      const targetTimelineX =
-        (moveEv.clientX - (containerRef.current?.getBoundingClientRect().left ?? 0) + (containerRef.current?.scrollLeft ?? 0));
-      const targetSec = targetTimelineX / basePixelsPerSecond;
+      const deltaSec = deltaX / basePixelsPerSecond;
+      let targetStart = Math.max(0, initialTimelineStart + deltaSec);
 
-      let targetIndex = 0;
-      let indicatorPx = 0;
+      // Magnet snap to 0s
+      if (targetStart < 0.25) {
+        targetStart = 0;
+      }
+      // Magnet snap to playhead currentTime
+      if (Math.abs(targetStart - currentTime) < 0.25) {
+        targetStart = currentTime;
+      }
 
-      for (let i = 0; i < trackClips.length; i++) {
-        const c = trackClips[i];
-        if (!c) continue;
-        const midpoint = c.timelineStart + c.timelineDuration / 2;
-        if (targetSec > midpoint) {
-          targetIndex = i + 1;
-          indicatorPx = (c.timelineStart + c.timelineDuration) * basePixelsPerSecond;
-        } else {
-          indicatorPx = c.timelineStart * basePixelsPerSecond;
-          break;
+      // Check if reordering between multiple clips on Video 1 track
+      if (track.type === 'video' && track.clips.length > 1) {
+        const targetTimelineX =
+          moveEv.clientX -
+          (containerRef.current?.getBoundingClientRect().left ?? 0) +
+          (containerRef.current?.scrollLeft ?? 0);
+        const targetSec = targetTimelineX / basePixelsPerSecond;
+
+        let candidateIndex = 0;
+        let indicatorPx = 0;
+        for (let i = 0; i < track.clips.length; i++) {
+          const c = track.clips[i];
+          if (!c) continue;
+          const midpoint = c.timelineStart + c.timelineDuration / 2;
+          if (targetSec > midpoint) {
+            candidateIndex = i + 1;
+            indicatorPx = (c.timelineStart + c.timelineDuration) * basePixelsPerSecond;
+          } else {
+            indicatorPx = c.timelineStart * basePixelsPerSecond;
+            break;
+          }
+        }
+
+        const safeIndex = Math.min(candidateIndex, track.clips.length - 1);
+        if (Math.abs(fromIndex - safeIndex) >= 1) {
+          mode = 'reorder';
+          setInsertionIndicator({
+            trackId: track.id,
+            targetIndex: safeIndex,
+            indicatorPx,
+          });
+          return;
         }
       }
 
-      setInsertionIndicator({
-        trackId: track.id,
-        targetIndex: Math.min(targetIndex, trackClips.length - 1),
-        indicatorPx,
-      });
+      // Default: free move mode
+      mode = 'move';
+      setInsertionIndicator(null);
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (upEv: PointerEvent) => {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
 
-      if (isReordering && insertionIndicator) {
-        if (fromIndex !== insertionIndicator.targetIndex) {
-          reorderClips(track.id, fromIndex, insertionIndicator.targetIndex);
+      if (isDragging) {
+        if (mode === 'reorder' && insertionIndicator) {
+          if (fromIndex !== insertionIndicator.targetIndex) {
+            reorderClips(track.id, fromIndex, insertionIndicator.targetIndex);
+          }
+        } else {
+          const deltaX = upEv.clientX - initialX;
+          const deltaSec = deltaX / basePixelsPerSecond;
+          let finalStart = Math.max(0, initialTimelineStart + deltaSec);
+          if (finalStart < 0.2) finalStart = 0;
+          if (Math.abs(finalStart - currentTime) < 0.25) finalStart = currentTime;
+          moveClip(clip.id, Number(finalStart.toFixed(2)));
         }
       }
 
@@ -486,20 +523,30 @@ export function TimelineView() {
                         </div>
                       )}
 
-                      {/* Transition Indicator Badge on left */}
-                      {clip.transition && (
+                      {/* Transition Indicator Badges (In & Out) */}
+                      {(clip.transitions?.in || clip.transition) && (
                         <span
                           className="px-1 py-0.2 rounded-xs bg-amber-400/30 text-amber-900 dark:text-amber-200 text-[8px] font-mono mr-1 shrink-0 flex items-center gap-0.5"
-                          title={`Transition: ${clip.transition.type} (${clip.transition.duration}s)`}
+                          title={`Incoming: ${(clip.transitions?.in || clip.transition)!.type} (${(clip.transitions?.in || clip.transition)!.duration}s)`}
                         >
                           <Layers className="w-2 h-2" />
-                          <span>{clip.transition.type}</span>
+                          <span>▶ In: {(clip.transitions?.in || clip.transition)!.type}</span>
                         </span>
                       )}
 
                       <span className="font-medium truncate text-[11px] pointer-events-none px-1">
                         {clipLabel}
                       </span>
+
+                      {clip.transitions?.out && (
+                        <span
+                          className="px-1 py-0.2 rounded-xs bg-amber-500/30 text-amber-950 dark:text-amber-200 text-[8px] font-mono mr-1 shrink-0 flex items-center gap-0.5"
+                          title={`Outgoing: ${clip.transitions.out.type} (${clip.transitions.out.duration}s)`}
+                        >
+                          <Layers className="w-2 h-2" />
+                          <span>Out: {clip.transitions.out.type} ◀</span>
+                        </span>
+                      )}
 
                       {/* Audio Ducking Badge */}
                       {clip.audioDucking?.enabled && (
